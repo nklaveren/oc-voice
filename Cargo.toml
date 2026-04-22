@@ -1,0 +1,43 @@
+[package]
+name = "oc-voice"
+version = "0.1.0"
+edition = "2021"
+description = "Voice -> text -> opencode TUI bridge"
+
+[[bin]]
+name = "oc-voice-poc"
+path = "src/main.rs"
+
+[dependencies]
+# audio capture
+cpal = "0.15"
+# whisper local
+whisper-rs = { version = "0.14", default-features = false }
+# ring buffer for streaming audio
+ringbuf = "0.4"
+# high quality resampling (replaces naive nearest-neighbour downsampling)
+rubato = "0.16"
+# voice activity detection (silero v5 via ort). load-dynamic avoids build-time downloads.
+voice_activity_detector = { version = "0.2", features = ["load-dynamic"] }
+# logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# errors
+anyhow = "1"
+# channels
+crossbeam-channel = "0.5"
+# misc
+ctrlc = "3"
+num_cpus = "1"
+serde_json = "1"
+# overlay GUI (floating subtitle-style window)
+eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+
+[features]
+default = ["cuda"]
+cuda = ["whisper-rs/cuda"]
+cpu = []
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

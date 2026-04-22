@@ -1,0 +1,5 @@
+/target
+/models
+/result
+/.direnv
+.envrc.local
