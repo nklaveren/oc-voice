@@ -31,6 +31,7 @@ ctrlc = "3"
 num_cpus = "1"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 # string similarity for the command matcher (Jaro-Winkler) — M1.1
 strsim = "0.11"
 # overlay GUI (floating subtitle-style window)

@@ -29,23 +29,22 @@ pub enum VoiceCommand {
 /// Similarity matching against the closed command vocabulary — see M1.1/M1.2
 /// in BACKLOG.md. Utterances with no candidate of the same word count are
 /// refused before scoring and fall through to dictation.
-pub fn classify(text: &str) -> Option<VoiceCommand> {
+pub fn classify(
+    text: &str,
+    vocab: &crate::config::LangVocab,
+    threshold: f64,
+) -> Option<VoiceCommand> {
     info!(text = %text, "similarity classification");
 
-    // The vocabulary M1.3 moves to commands.toml — same words the M1.1
-    // measurements ran against.
-    const SEND: &[&str] = &["cambio", "envia", "manda", "pronto"];
-    const CANCEL: &[&str] = &["cancela", "limpa", "descarta"];
-    const NEWLINE: &[&str] = &["nova linha", "pula linha"];
-
-    if matcher::match_exact(text, SEND, matcher::DEFAULT_THRESHOLD).is_some() {
-        return Some(VoiceCommand::Send);
-    }
-    if matcher::match_exact(text, CANCEL, matcher::DEFAULT_THRESHOLD).is_some() {
-        return Some(VoiceCommand::Cancel);
-    }
-    if matcher::match_exact(text, NEWLINE, matcher::DEFAULT_THRESHOLD).is_some() {
-        return Some(VoiceCommand::Newline);
+    for (words, command) in [
+        (&vocab.send, VoiceCommand::Send),
+        (&vocab.cancel, VoiceCommand::Cancel),
+        (&vocab.newline, VoiceCommand::Newline),
+    ] {
+        let refs: Vec<&str> = words.iter().map(String::as_str).collect();
+        if matcher::match_exact(text, &refs, threshold).is_some() {
+            return Some(command);
+        }
     }
 
     // The send-to path keeps exact prefix matching and the alias table until
@@ -169,6 +168,13 @@ pub fn execute_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// All command tests speak the embedded Portuguese vocabulary.
+    fn classify(text: &str) -> Option<VoiceCommand> {
+        let config = crate::config::Config::embedded();
+        let vocab = config.vocab("pt").expect("embedded pt vocab");
+        super::classify(text, vocab, config.threshold())
+    }
 
     #[test]
     fn accented_send_keyword_matches() {

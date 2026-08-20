@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:32`), a tabela de aliases `resolve_target_alias` (`src/commands/mod.rs:108`) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:85`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:32`), a tabela de aliases `resolve_target_alias` (`src/commands/mod.rs:107`) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:97`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -151,7 +151,7 @@ A capacidade de **recusar** é o requisito central, não a de acertar. Um autoco
 
 Pipeline, nesta ordem:
 
-1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:93`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
+1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:92`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
 2. **Filtrar por contagem de palavras** — só entram na comparação candidatos com o mesmo número de palavras da fala. Este passo é o que separa comando de ditado, ver medição abaixo.
 3. **Pontuar** com Jaro-Winkler (`strsim`), limiar default 0.82.
 
@@ -202,9 +202,9 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 **Aceite:** `grep -rn "eq_ignore_ascii_case\|contains(&text_lower)" src/` vazio. Os testes de M1.1 passam contra a API pública.
 
-### M1.3 — Vocabulário multilíngue em arquivo de configuração
+### M1.3 — Vocabulário multilíngue em arquivo de configuração ✅
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:54`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:56`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 
@@ -245,7 +245,7 @@ As duas dicas de texto do overlay (`src/ui/overlay.rs`) citam "envia" e "cambio"
 
 ### M2.1 — Matar a tabela de aliases
 
-`resolve_target_alias` ([`src/commands/mod.rs:108`](src/commands/mod.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
+`resolve_target_alias` ([`src/commands/mod.rs:107`](src/commands/mod.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
 
 Medido nas janelas abertas nesta máquina, **5 dos 7 aliases não encontram nada**:
 

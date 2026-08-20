@@ -54,6 +54,18 @@ pub fn transcribe(
 
     state.full(params, audio).context("whisper full()")?;
 
+    // In auto mode, remember what whisper detected: it selects the command
+    // vocabulary section for this utterance (M1.3).
+    if lang == "auto" {
+        if let Some(code) = state
+            .full_lang_id_from_state()
+            .ok()
+            .and_then(whisper_rs::get_lang_str)
+        {
+            crate::lock_settings(settings).detected_language = Some(code.to_string());
+        }
+    }
+
     let mut out = String::new();
     let n = state.full_n_segments().context("n_segments")?;
     for i in 0..n {

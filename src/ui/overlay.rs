@@ -13,6 +13,7 @@ pub fn run_overlay(
     running: Arc<AtomicBool>,
     settings: Arc<Mutex<AppSettings>>,
     runner: Arc<dyn CommandRunner>,
+    config: Arc<crate::config::Config>,
 ) -> Result<()> {
     let viewport = egui::ViewportBuilder::default()
         .with_title("oc-voice")
@@ -33,7 +34,7 @@ pub fn run_overlay(
     eframe::run_native(
         "oc-voice",
         options,
-        Box::new(|_cc| Ok(Box::new(OverlayApp::new(rx, running, settings)))),
+        Box::new(|_cc| Ok(Box::new(OverlayApp::new(rx, running, settings, config)))),
     )
     .map_err(|e| anyhow!("eframe error: {e}"))?;
 
@@ -44,6 +45,7 @@ struct OverlayApp {
     rx: Receiver<TranscriptEvent>,
     running: Arc<AtomicBool>,
     settings: Arc<Mutex<AppSettings>>,
+    config: Arc<crate::config::Config>,
     partial: String,
     finals: Vec<String>,
     buffered: usize,
@@ -58,17 +60,34 @@ impl OverlayApp {
         rx: Receiver<TranscriptEvent>,
         running: Arc<AtomicBool>,
         settings: Arc<Mutex<AppSettings>>,
+        config: Arc<crate::config::Config>,
     ) -> Self {
         Self {
             rx,
             running,
             settings,
+            config,
             partial: String::new(),
             finals: Vec::new(),
             buffered: 0,
             show_settings: false,
             pipeline_failed: false,
         }
+    }
+
+    /// First send keyword of the active language, for the UI hints. Falls
+    /// back to a neutral hint when the language has no command section.
+    fn send_word(&self) -> Option<String> {
+        let s = crate::lock_settings(&self.settings);
+        let lang = if s.language == "auto" {
+            s.detected_language.clone().unwrap_or_else(|| "pt".into())
+        } else {
+            s.language.clone()
+        };
+        drop(s);
+        self.config
+            .vocab(&lang)
+            .and_then(|v| v.send.first().cloned())
     }
 
     fn drain_events(&mut self) {
@@ -203,21 +222,28 @@ impl eframe::App for OverlayApp {
                     );
                 }
                 if self.finals.is_empty() && self.partial.is_empty() && self.buffered == 0 {
+                    let hint = match self.send_word() {
+                        Some(w) => {
+                            format!("[ speak into the mic \u{2014} say \"{w}\" to send ]")
+                        }
+                        None => "[ speak into the mic \u{2014} dictation only ]".to_string(),
+                    };
                     ui.label(
-                        egui::RichText::new(
-                            "[ speak into the mic \u{2014} say \"envia\" to send ]",
-                        )
-                        .color(egui::Color32::from_gray(120))
-                        .italics()
-                        .size(14.0),
+                        egui::RichText::new(hint)
+                            .color(egui::Color32::from_gray(120))
+                            .italics()
+                            .size(14.0),
                     );
                 }
                 if self.buffered > 0 {
                     ui.label(
-                        egui::RichText::new(format!(
-                            "{} line(s) buffered \u{2014} say \"cambio\" to send",
-                            self.buffered
-                        ))
+                        egui::RichText::new(match self.send_word() {
+                            Some(w) => format!(
+                                "{} line(s) buffered \u{2014} say \"{w}\" to send",
+                                self.buffered
+                            ),
+                            None => format!("{} line(s) buffered", self.buffered),
+                        })
                         .color(egui::Color32::from_rgb(255, 200, 80))
                         .size(14.0),
                     );
@@ -286,8 +312,10 @@ mod tests {
         let settings = Arc::new(Mutex::new(AppSettings {
             language: "pt".to_string(),
             mode: TranscribeMode::Enter,
+            detected_language: None,
         }));
-        (OverlayApp::new(rx, running, settings), tx)
+        let config = Arc::new(crate::config::Config::embedded());
+        (OverlayApp::new(rx, running, settings, config), tx)
     }
 
     #[test]

@@ -1,0 +1,78 @@
+# Default voice-command vocabulary, embedded in the binary.
+# A user file at ~/.config/oc-voice/commands.toml overrides per language:
+# a language section defined there fully replaces the embedded one.
+#
+# Languages without a section here (e.g. ja, zh) still transcribe and dictate
+# normally — they just never fire commands. The matcher's word-count gate and
+# diacritic fold assume space-separated alphabetic script; see M1.3 in
+# BACKLOG.md.
+
+[matching]
+threshold = 0.82
+
+[pt]
+prefix = ["computador"]
+send = ["câmbio", "envia", "manda", "pronto"]
+cancel = ["cancela", "limpa", "descarta"]
+newline = ["nova linha", "pula linha"]
+confirm = ["confirma", "sim"]
+deny = ["não", "cancela"]
+
+[pt.numbers]
+um = 1
+uma = 1
+dois = 2
+duas = 2
+"três" = 3
+"tres" = 3
+quatro = 4
+cinco = 5
+seis = 6
+sete = 7
+oito = 8
+nove = 9
+dez = 10
+
+[pt.directions]
+direita = "r"
+esquerda = "l"
+cima = "u"
+baixo = "d"
+
+[pt.targets]
+navegador = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]
+terminal = ["alacritty", "kitty", "foot", "wezterm", "ghostty"]
+editor = ["code", "nvim", "zed", "emacs"]
+chat = ["discord", "telegram", "slack", "teams", "element"]
+
+[en]
+prefix = ["computer"]
+send = ["send", "over", "done"]
+cancel = ["cancel", "clear", "discard"]
+newline = ["new line"]
+confirm = ["confirm", "yes"]
+deny = ["no", "cancel"]
+
+[en.numbers]
+one = 1
+two = 2
+three = 3
+four = 4
+five = 5
+six = 6
+seven = 7
+eight = 8
+nine = 9
+ten = 10
+
+[en.directions]
+right = "r"
+left = "l"
+up = "u"
+down = "d"
+
+[en.targets]
+browser = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]
+terminal = ["alacritty", "kitty", "foot", "wezterm", "ghostty"]
+editor = ["code", "nvim", "zed", "emacs"]
+chat = ["discord", "telegram", "slack", "teams", "element"]

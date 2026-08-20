@@ -14,6 +14,7 @@ mod asr;
 #[deny(clippy::unwrap_used)]
 mod audio;
 mod commands;
+mod config;
 mod input;
 mod process;
 mod ui;
@@ -26,12 +27,12 @@ use crossbeam_channel::Sender;
 use input::inject::type_text;
 use process::{CommandRunner, SystemRunner};
 use ringbuf::{traits::*, HeapRb};
-use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info};
 use ui::overlay::run_overlay;
+use ui::stdout::emit;
 use voice_activity_detector::VoiceActivityDetector;
 use whisper_rs::{WhisperContext, WhisperContextParameters};
 
@@ -90,6 +91,9 @@ pub enum TranscribeMode {
 pub struct AppSettings {
     pub language: String,
     pub mode: TranscribeMode,
+    /// Last language whisper detected while `language` is "auto"; picks the
+    /// command vocabulary section (M1.3).
+    pub detected_language: Option<String>,
 }
 
 /// Lock shared settings, recovering from mutex poisoning. A poisoned lock
@@ -125,7 +129,10 @@ fn main() -> Result<()> {
     let settings = Arc::new(Mutex::new(AppSettings {
         language: "pt".to_string(),
         mode: TranscribeMode::Enter,
+        detected_language: None,
     }));
+
+    let vocab_config = Arc::new(config::Config::load());
 
     let runner: Arc<dyn CommandRunner> = Arc::new(SystemRunner);
 
@@ -133,6 +140,7 @@ fn main() -> Result<()> {
     // reserved for the GUI event loop (eframe needs to own it on most platforms).
     let pipeline_running = running.clone();
     let pipeline_settings = settings.clone();
+    let pipeline_config = vocab_config.clone();
     let pipeline_runner = runner.clone();
     let pipeline_handle = std::thread::spawn(move || {
         if let Err(e) = run_audio_pipeline(
@@ -141,6 +149,7 @@ fn main() -> Result<()> {
             tx,
             pipeline_settings,
             pipeline_runner,
+            pipeline_config,
         ) {
             error!(error = ?e, "audio pipeline failed");
         }
@@ -149,7 +158,7 @@ fn main() -> Result<()> {
     // Run the overlay on the main thread. When the window closes, signal the
     // pipeline to stop.
     let ui_running = running.clone();
-    if let Err(e) = run_overlay(rx, ui_running, settings, runner) {
+    if let Err(e) = run_overlay(rx, ui_running, settings, runner, vocab_config) {
         error!(error = ?e, "overlay failed");
     }
 
@@ -169,6 +178,7 @@ fn run_audio_pipeline(
     tx: Sender<TranscriptEvent>,
     settings: Arc<Mutex<AppSettings>>,
     runner: Arc<dyn CommandRunner>,
+    config: Arc<config::Config>,
 ) -> Result<()> {
     info!(model = %model_path, "loading whisper model");
     let load_start = Instant::now();
@@ -306,7 +316,9 @@ fn run_audio_pipeline(
                         TranscribeMode::Input => {
                             type_text(&*runner, trimmed);
                         }
-                        TranscribeMode::Enter => match classify(trimmed) {
+                        TranscribeMode::Enter => match config::active_vocab(&config, &settings)
+                            .and_then(|v| classify(trimmed, v, config.threshold()))
+                        {
                             Some(VoiceCommand::Dictation) | None => {
                                 enter_buffer.push(trimmed.to_string());
                                 emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
@@ -334,7 +346,9 @@ fn run_audio_pipeline(
                         TranscribeMode::Input => {
                             type_text(&*runner, trimmed);
                         }
-                        TranscribeMode::Enter => match classify(trimmed) {
+                        TranscribeMode::Enter => match config::active_vocab(&config, &settings)
+                            .and_then(|v| classify(trimmed, v, config.threshold()))
+                        {
                             Some(VoiceCommand::Dictation) | None => {
                                 enter_buffer.push(trimmed.to_string());
                                 emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
@@ -357,31 +371,4 @@ fn run_audio_pipeline(
         let _ = handle.join();
     }
     Ok(())
-}
-
-/// Fan-out: send to the UI channel AND echo to stdout for debugging.
-fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
-    match &event {
-        TranscriptEvent::Partial(s) => write_stdout(&format!("\r\x1b[2K[partial] {s}")),
-        TranscriptEvent::PartialCleared => write_stdout("\r\x1b[2K"),
-        TranscriptEvent::Final(s) => write_stdout(&format!("\r\x1b[2K[final]   {s}\n")),
-        TranscriptEvent::Buffered(n) => write_stdout(&format!(
-            "\r\x1b[2K[buffered] {n} line(s) waiting for keyword"
-        )),
-        TranscriptEvent::Sent(s) => write_stdout(&format!("\r\x1b[2K[sent]     {s}\n")),
-        TranscriptEvent::Newline => write_stdout("\r\x1b[2K[newline]  Shift+Return\n"),
-        TranscriptEvent::Cancelled => write_stdout("\r\x1b[2K[cancelled] buffer cleared\n"),
-        TranscriptEvent::SentTo(_, target) => {
-            write_stdout(&format!("\r\x1b[2K[sent_to]  {target}\n"))
-        }
-    }
-    let _ = tx.send(event);
-}
-
-/// \r-based overwrite of the current partial on stdout. Uses ANSI clear-EOL.
-fn write_stdout(s: &str) {
-    let stdout = std::io::stdout();
-    let mut h = stdout.lock();
-    let _ = write!(h, "{s}");
-    let _ = h.flush();
 }
