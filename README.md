@@ -132,6 +132,30 @@ realtime and cannot drive live partials. If you have no NVIDIA GPU, swap
 `model_name` in the `justfile` for `ggml-small` or `ggml-base` — smaller
 models trade accuracy for a realtime-capable CPU path.
 
+## Hyprland window rules (recommended)
+
+The overlay makes itself floating and pinned at startup, but that happens
+*after* Hyprland has already mapped and tiled the window — you see a frame of
+it wedged into the layout. A window rule applies at map time and removes that
+entirely:
+
+```
+# ~/.config/hypr/hyprland.conf
+windowrulev2 = float, class:^(oc-voice)$
+windowrulev2 = pin, class:^(oc-voice)$
+windowrulev2 = noborder, class:^(oc-voice)$
+windowrulev2 = noshadow, class:^(oc-voice)$
+windowrulev2 = nofocus, class:^(oc-voice)$
+```
+
+`nofocus` is the one worth understanding: without it the overlay steals focus
+when it appears, and Enter-mode text then lands in the overlay instead of the
+window you were working in.
+
+The built-in fallback stays for anyone without the rule, and it is idempotent
+— it reads the window's actual state and applies only what is missing, so it
+never fights the rule.
+
 ## Diagnostics
 
 Four subcommands answer "why is it doing that?" without starting the pipeline:
