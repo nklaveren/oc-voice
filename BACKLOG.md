@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:48`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:115`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:48`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:166`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 

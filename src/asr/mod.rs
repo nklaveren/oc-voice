@@ -3,16 +3,8 @@ use crate::{AppSettings, TranscribeMode, MIN_TRANSCRIBE_SAMPLES, TARGET_SAMPLE_R
 use anyhow::{Context, Result};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tracing::debug;
+use tracing::{debug, info};
 use whisper_rs::{FullParams, SamplingStrategy};
-
-pub fn transcribe(
-    state: &mut whisper_rs::WhisperState,
-    audio: &[f32],
-    settings: &Arc<Mutex<AppSettings>>,
-) -> Result<String> {
-    transcribe_with(state, audio, settings, true)
-}
 
 /// `single_segment` forces whisper to emit one segment. The live pipeline
 /// wants that — VAD already bounded the audio to one utterance — but on a
@@ -23,6 +15,51 @@ pub fn transcribe_with(
     audio: &[f32],
     settings: &Arc<Mutex<AppSettings>>,
     single_segment: bool,
+) -> Result<String> {
+    let mut throwaway = LanguageLock::default();
+    transcribe_locked(state, audio, settings, single_segment, &mut throwaway)
+}
+
+/// Whisper re-detects the language on every segment, and a three-second
+/// utterance is thin evidence: a real meeting produced `es` at p=0.24 among
+/// a run of `en` at p=0.999, and that one segment came out as "¿Qué?".
+///
+/// The lock only pins a language after consecutive detections agree, and only
+/// unpins after the same number disagree. Once pinned it is passed to whisper
+/// as an explicit hint, which is both stabler and more accurate than making
+/// it guess again every few seconds.
+#[derive(Default)]
+pub struct LanguageLock {
+    candidate: Option<String>,
+    streak: usize,
+}
+
+impl LanguageLock {
+    /// How many agreeing detections it takes to pin, or disagreeing to drop.
+    const AGREEMENT: usize = 3;
+
+    /// Returns the language to lock, the first time a run reaches AGREEMENT.
+    pub fn observe(&mut self, code: &str) -> Option<&str> {
+        if self.candidate.as_deref() == Some(code) {
+            self.streak += 1;
+        } else {
+            self.candidate = Some(code.to_string());
+            self.streak = 1;
+        }
+        if self.streak == Self::AGREEMENT {
+            self.candidate.as_deref()
+        } else {
+            None
+        }
+    }
+}
+
+pub fn transcribe_locked(
+    state: &mut whisper_rs::WhisperState,
+    audio: &[f32],
+    settings: &Arc<Mutex<AppSettings>>,
+    single_segment: bool,
+    lock: &mut LanguageLock,
 ) -> Result<String> {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_print_special(false);
@@ -39,15 +76,26 @@ pub fn transcribe_with(
         let s = crate::lock_settings(settings);
         (s.language.clone(), s.mode == TranscribeMode::Translate)
     };
+    // A locked language wins over detection: see LanguageLock.
+    let locked = crate::lock_settings(settings).detected_language.clone();
+
     // `language` is the SOURCE hint, not the output language — whisper's
     // translate task only ever emits English. In Translate mode the source is
     // whatever the meeting happens to be speaking, so forcing the UI's
     // selection there tells whisper to decode English audio as Portuguese and
     // it returns noise. Detection is the only correct answer for system audio.
-    if lang == "auto" || translate {
-        params.set_language(None);
+    let hint = if lang == "auto" || translate {
+        // Once the source language is known, telling whisper beats making it
+        // guess again on every three-second segment — and stops a
+        // low-confidence guess from derailing one utterance (M7.2).
+        locked.clone()
     } else {
-        params.set_language(Some(&lang));
+        Some(lang.clone())
+    };
+    if let Some(ref h) = hint {
+        params.set_language(Some(h));
+    } else {
+        params.set_language(None);
     }
     params.set_translate(translate);
 
@@ -72,15 +120,18 @@ pub fn transcribe_with(
 
     state.full(params, audio).context("whisper full()")?;
 
-    // In auto mode, remember what whisper detected: it selects the command
-    // vocabulary section for this utterance (M1.3).
-    if lang == "auto" {
+    // Feed the detection to the lock. Only agreement pins a language; a
+    // single reading never does.
+    if hint.is_none() {
         if let Some(code) = state
             .full_lang_id_from_state()
             .ok()
             .and_then(whisper_rs::get_lang_str)
         {
-            crate::lock_settings(settings).detected_language = Some(code.to_string());
+            if let Some(settled) = lock.observe(code) {
+                info!(language = settled, "source language locked");
+                crate::lock_settings(settings).detected_language = Some(settled.to_string());
+            }
         }
     }
 
@@ -181,6 +232,8 @@ impl SpeechSegment {
 
 #[cfg(test)]
 mod tests {
+    use super::LanguageLock;
+
     /// Print what the machine was doing during the run. A latency number
     /// without its conditions misleads later: the first CPU measurement of
     /// this benchmark was taken under a 40 W power cap with a SQL Server VM
@@ -211,6 +264,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_single_odd_detection_never_pins_a_language() {
+        // The live failure: a run of `en` with one `es` at p=0.24 in the
+        // middle, which came out as "¿Qué?" in an English meeting.
+        let mut lock = LanguageLock::default();
+        assert_eq!(lock.observe("en"), None);
+        assert_eq!(lock.observe("en"), None);
+        assert_eq!(lock.observe("en"), Some("en"), "three agreeing pins it");
+        // The stray reading resets the streak but must not pin anything.
+        assert_eq!(lock.observe("es"), None);
+        assert_eq!(lock.observe("en"), None);
+        assert_eq!(lock.observe("en"), None);
+        assert_eq!(lock.observe("en"), Some("en"));
+    }
+
+    #[test]
+    fn a_genuine_language_change_still_settles() {
+        // Someone switching to Spanish for the rest of the call must be
+        // followed, just not on the first utterance.
+        let mut lock = LanguageLock::default();
+        for _ in 0..3 {
+            lock.observe("en");
+        }
+        assert_eq!(lock.observe("es"), None);
+        assert_eq!(lock.observe("es"), None);
+        assert_eq!(lock.observe("es"), Some("es"));
     }
 
     /// Latency measurement for M5.4 — run explicitly, needs the model:
