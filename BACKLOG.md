@@ -4,11 +4,13 @@ Roteiro de `oc-voice` do estado atual até a versão pública: **controle de voz
 
 Cada item tem um critério de aceite verificável por comando. Nada aqui depende de julgamento subjetivo para saber se está pronto.
 
+Item concluído leva **✅ e o hash do commit** no título. Ao terminar um item, marque-o aqui no mesmo commit — é assim que o próximo agente sabe onde pegar.
+
 ## Onde estamos
 
 O pipeline de áudio funciona: cpal → rubato 16 kHz → ring buffer → silero VAD → whisper `large-v3-turbo` Q8 em CUDA, com parciais a cada ~800 ms e final no silêncio. O overlay egui flutua e fixa via `hyprctl`. A injeção de texto via `wtype` funciona. Três modos existem: `Input`, `Translate`, `Enter`.
 
-O que trava a evolução é o reconhecimento de comando. Ele é igualdade exata de string contra tabelas chumbadas, e um caminho de LLM inteiro foi escrito e nunca ligado.
+O que trava a evolução é o reconhecimento de comando: igualdade exata de string contra tabelas chumbadas. O caminho de LLM que existia — escrito e nunca ligado — foi removido em M0.1.
 
 **Premissa central deste backlog:** o LLM sai. O conjunto de comandos é fechado e pequeno, e o conjunto de alvos é enumerável em runtime via `hyprctl clients -j`. Similaridade de string resolve os dois em microssegundos, com precisão maior que a de um modelo adivinhando contra uma tabela estática. A latência que fez o projeto parar era de um componente que o objetivo real não precisa.
 
@@ -18,7 +20,7 @@ O que trava a evolução é o reconhecimento de comando. Ele é igualdade exata 
 
 Remover o que não roda e quebrar o monólito, antes de construir por cima.
 
-### M0.1 — Remover o caminho do LLM
+### M0.1 — Remover o caminho do LLM ✅ `f07e822`
 
 O classificador por LLM em [`src/llm_classifier.rs`](src/llm_classifier.rs) nunca é instanciado. `main.rs` só chama `classify_with_fallback`, que é um método estático e não toca no servidor. Os três `#[allow(dead_code)]` (linhas 7, 29, 232) existem exatamente para calar o compilador sobre isso.
 
@@ -38,21 +40,25 @@ Apagar:
 
 **Aceite:** `grep -rn "allow(dead_code)\|llama\|ureq" src/ Cargo.toml flake.nix justfile` retorna vazio. `just check` verde. `cargo build --release` sem warnings.
 
+**Feito em `f07e822`.** Duas decisões além da letra do item: `llm_classifier.rs` virou `commands.rs` (módulo batizado de LLM sem LLM dentro é a confusão que este item remove, e é onde M0.2 o coloca), e `classify_with_fallback` virou `classify` (sem LLM não há de onde cair para trás). `ureq` permanece no `Cargo.lock` como build-dependency de `ort-sys`, via o crate do VAD silero — transitivo, fora do nosso controle.
+
 ### M0.2 — Quebrar `main.rs` em módulos
 
-1403 linhas com sete responsabilidades distintas. Um contribuidor externo não consegue achar nada, e é impossível testar as partes isoladamente.
+1399 linhas com sete responsabilidades distintas. Um contribuidor externo não consegue achar nada, e é impossível testar as partes isoladamente.
 
 Divisão proposta, seguindo as fronteiras que já existem no arquivo:
 
 | Módulo | O que leva | Linhas de origem |
 |---|---|---|
-| `audio/capture.rs` | `run_capture`, `run_capture_system`, `get_default_sink_target` | 498–723 |
-| `audio/resample.rs` | `Resampler16k`, `to_mono`, `push_samples` | 724–812 |
-| `asr/mod.rs` | `transcribe`, `SpeechSegment`, `HALLUCINATIONS`, `filter_hallucination` | 426–475, 813–902 |
-| `commands/mod.rs` | `VoiceCommand`, matcher, `execute_command` | 339–384 + `llm_classifier.rs` |
-| `wm/hyprland.rs` | `focus_window_and_type`, `try_hyprland_float`, `hyprctl_primary_monitor_info` | 1008–1195 |
-| `input/inject.rs` | `type_text`, `type_key`, `type_shift_return` | 903–1007 |
-| `ui/overlay.rs` | `run_overlay`, `OverlayApp`, `LANGUAGES` | 1079–1403 |
+| `audio/capture.rs` | `run_capture`, `run_capture_system`, `get_default_sink_target` | 494–719 |
+| `audio/resample.rs` | `Resampler16k`, `to_mono`, `push_samples` | 720–808 |
+| `asr/mod.rs` | `transcribe`, `SpeechSegment`, `HALLUCINATIONS`, `filter_hallucination` | 422–471, 809–898 |
+| `commands/mod.rs` | `execute_command` + o `src/commands.rs` atual | 335–381 |
+| `wm/hyprland.rs` | `focus_window_and_type`, `try_hyprland_float`, `hyprctl_primary_monitor_info` | 1004–1191 |
+| `input/inject.rs` | `type_text`, `type_key`, `type_shift_return` | 899–1003 |
+| `ui/overlay.rs` | `run_overlay`, `OverlayApp`, `LANGUAGES` | 1075–1399 |
+
+Linhas conferidas em `f07e822`. Se divergirem, confie nos nomes, não nos números.
 
 `main.rs` fica com `main`, `run_audio_pipeline`, `TranscriptEvent`, `TranscribeMode`, `AppSettings`, `emit` e os `const` de tuning.
 
@@ -72,7 +78,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos (`llm_classifier.rs:173`), a tabela de aliases (`llm_classifier.rs:262`) e o filtro de alucinação (`main.rs:870`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos (`commands.rs:24`), a tabela de aliases (`commands.rs:100`) e o filtro de alucinação (`main.rs:866`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -98,7 +104,7 @@ A capacidade de **recusar** é o requisito central, não a de acertar. Um autoco
 
 Pipeline, nesta ordem:
 
-1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `llm_classifier.rs:247`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
+1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `commands.rs:85`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
 2. **Filtrar por contagem de palavras** — só entram na comparação candidatos com o mesmo número de palavras da fala. Este passo é o que separa comando de ditado, ver medição abaixo.
 3. **Pontuar** com Jaro-Winkler (`strsim`), limiar default 0.82.
 
@@ -143,7 +149,7 @@ Os templates moram no `commands.toml` junto do resto do vocabulário, porque a o
 
 ### M1.2 — Trocar as três comparações pelo matcher
 
-Reescrever `classify_with_fallback` usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
+Reescrever `classify` (`commands.rs:24`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
 
 Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **string inteira** normalizada. Existe uma guarda de ≤5 palavras sugerindo que frases curtas deveriam passar, mas na prática só a palavra sozinha funciona — "ok câmbio" cai como ditado.
 
@@ -151,7 +157,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `main.rs:1206`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `main.rs:1202`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 
@@ -190,7 +196,7 @@ As tabelas de números (M3.2) e direções (M3.1) moram aqui também — são vo
 
 ### M2.1 — Matar a tabela de aliases
 
-`resolve_target_alias` ([`llm_classifier.rs:262`](src/llm_classifier.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
+`resolve_target_alias` ([`commands.rs:100`](src/commands.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
 
 Medido nas janelas abertas nesta máquina, **5 dos 7 aliases não encontram nada**:
 
@@ -263,7 +269,7 @@ O limiar mais duro em título é de graça: alvo legítimo casa por token exato 
 
 ### M2.2 — Corrigir o match vazio em `focus_window_and_type`
 
-Em [`main.rs:1053`](src/main.rs) a condição `target_lower.contains(&class)` é verdadeira sempre que `class` é string vazia, porque `contains("")` é sempre `true`. Uma janela sem classe captura qualquer alvo falado.
+Em [`main.rs:1051`](src/main.rs) a condição `target_lower.contains(&class)` é verdadeira sempre que `class` é string vazia, porque `contains("")` é sempre `true`. Uma janela sem classe captura qualquer alvo falado.
 
 **Aceite:** candidatos com `class` e `title` vazios são descartados antes de comparar. Teste com fixture contendo uma janela de classe vazia.
 
