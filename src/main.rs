@@ -9,20 +9,23 @@
 //! Usage: oc-voice-poc <path-to-ggml-model.bin>
 
 use anyhow::{anyhow, Context, Result};
+mod llm_classifier;
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
+use llm_classifier::{LlmClassifier, VoiceCommand};
 use ringbuf::{traits::*, HeapRb};
 use rubato::{
     Resampler as RubatoResampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
     WindowFunction,
 };
-use std::io::Write;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use voice_activity_detector::VoiceActivityDetector;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -30,15 +33,23 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 const TARGET_SAMPLE_RATE: u32 = 16_000;
 /// silero v5 at 16 kHz requires exactly 512-sample windows (~32 ms)
 const VAD_FRAME_SAMPLES: usize = 512;
-/// probability threshold above which we consider the frame to be speech
+/// probability threshold above which we consider the frame to be speech.
+/// Lower = more sensitive (catches weak syllables, breathing pauses),
+/// higher = more conservative (less hallucination from background noise).
 const VAD_SPEECH_THRESHOLD: f32 = 0.55;
-/// how many consecutive non-speech frames until we emit final and reset
-/// 20 frames * 32 ms ~= 640 ms of silence
+/// how many consecutive non-speech frames until we emit final and reset.
+/// 20 frames * 32 ms ~= 640 ms of silence before closing a segment.
 const VAD_HANG_FRAMES: usize = 20;
+/// Enter mode is more tolerant to pauses while composing the buffer.
+/// 30 frames * 32 ms ~= 960 ms of silence before closing a segment.
+const VAD_HANG_FRAMES_ENTER: usize = 30;
 /// minimum accumulated speech before we bother with a partial transcription
 const PARTIAL_MIN_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * 600 / 1000; // 600 ms
 /// how often to emit partial while speaking
 const PARTIAL_EVERY: Duration = Duration::from_millis(800);
+/// In Enter mode we want a steadier, less flickery partial. Longer window
+/// between partial refreshes avoids the "cutting too fast" feeling.
+const PARTIAL_EVERY_ENTER: Duration = Duration::from_millis(900);
 /// cap the size of one segment so we don't blow up on very long utterances
 const SEGMENT_MAX_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * 20; // 20 s
 /// whisper wants at least 1 s of audio; shorter inputs get padded with silence
@@ -59,6 +70,8 @@ pub enum TranscriptEvent {
     Newline,
     /// In Enter mode: buffer was cancelled/discard.
     Cancelled,
+    /// In Enter mode: text was sent to a specific window target.
+    SentTo(String, String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,7 +81,6 @@ pub enum TranscribeMode {
     Enter,
 }
 
-#[derive(Debug, Clone)]
 pub struct AppSettings {
     pub language: String,
     pub mode: TranscribeMode,
@@ -142,7 +154,10 @@ fn run_audio_pipeline(
 
     let ctx =
         WhisperContext::new_with_params(model_path, ctx_params).context("loading whisper model")?;
-    info!(elapsed_ms = load_start.elapsed().as_millis(), "whisper model loaded");
+    info!(
+        elapsed_ms = load_start.elapsed().as_millis(),
+        "whisper model loaded"
+    );
 
     let mut vad = VoiceActivityDetector::builder()
         .sample_rate(TARGET_SAMPLE_RATE)
@@ -152,28 +167,64 @@ fn run_audio_pipeline(
     info!("silero VAD ready");
 
     // ring buffer between capture thread and processing loop; ~4s of 16 kHz audio
-    let ring_capacity = TARGET_SAMPLE_RATE as usize * 4;
-    let ring = HeapRb::<f32>::new(ring_capacity);
-    let (producer, mut consumer) = ring.split();
-
-    let capture_running = running.clone();
-    let capture_thread = std::thread::spawn(move || {
-        if let Err(e) = run_capture(producer, capture_running) {
-            error!(error = ?e, "capture thread failed");
-        }
-    });
-
     let mut state = ctx.create_state().context("creating whisper state")?;
     let mut frame_buf: Vec<f32> = Vec::with_capacity(VAD_FRAME_SAMPLES * 2);
     let mut segment = SpeechSegment::default();
-
     let mut enter_buffer: Vec<String> = Vec::new();
+
+    // Dynamic capture management: start/stop capture threads based on mode
+    let mut capture_running_flag = Arc::new(AtomicBool::new(true));
+    let mut capture_handle: Option<std::thread::JoinHandle<()>> = None;
+    let mut consumer: Option<ringbuf::HeapCons<f32>> = None;
+    let mut last_mode: Option<TranscribeMode> = None;
 
     info!("speak into the mic; close the overlay window or press Ctrl+C to exit");
 
     while running.load(Ordering::SeqCst) {
+        let mode = settings.lock().unwrap().mode;
+        let is_translate = mode == TranscribeMode::Translate;
+
+        if last_mode != Some(mode) || capture_handle.is_none() {
+            if let Some(handle) = capture_handle.take() {
+                capture_running_flag.store(false, Ordering::SeqCst);
+                let _ = handle.join();
+            }
+
+            capture_running_flag = Arc::new(AtomicBool::new(true));
+            let ring = HeapRb::<f32>::new(TARGET_SAMPLE_RATE as usize * 4);
+            let (producer, cons) = ring.split();
+            consumer = Some(cons);
+
+            let flag = capture_running_flag.clone();
+            capture_handle = Some(std::thread::spawn(move || {
+                let result = if is_translate {
+                    run_capture_system(producer, flag)
+                } else {
+                    run_capture(producer, flag)
+                };
+                if let Err(e) = result {
+                    error!(error = ?e, "capture thread failed");
+                }
+            }));
+
+            last_mode = Some(mode);
+            info!(
+                ?mode,
+                source = if is_translate { "system" } else { "mic" },
+                "capture source switched"
+            );
+        }
+
+        let cons = match consumer.as_mut() {
+            Some(c) => c,
+            None => {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+        };
+
         let mut tmp = [0f32; 2048];
-        let n = consumer.pop_slice(&mut tmp);
+        let n = cons.pop_slice(&mut tmp);
         if n == 0 {
             std::thread::sleep(Duration::from_millis(20));
             continue;
@@ -187,9 +238,17 @@ fn run_audio_pipeline(
 
             segment.push_frame(&frame, is_speech);
 
+            // Per-mode tunables: Enter mode tolerates longer pauses and emits
+            // partials less often so the overlay doesn't flicker while the
+            // user thinks between sentences.
+            let (hang_frames, partial_every) = match mode {
+                TranscribeMode::Enter => (VAD_HANG_FRAMES_ENTER, PARTIAL_EVERY_ENTER),
+                _ => (VAD_HANG_FRAMES, PARTIAL_EVERY),
+            };
+
             if segment.speaking()
                 && segment.samples.len() >= PARTIAL_MIN_SAMPLES
-                && segment.last_partial.elapsed() >= PARTIAL_EVERY
+                && segment.last_partial.elapsed() >= partial_every
             {
                 let infer_start = Instant::now();
                 let text = transcribe(&mut state, &segment.samples, &settings)?;
@@ -207,55 +266,33 @@ fn run_audio_pipeline(
                 }
             }
 
-            if segment.should_finalize() {
+            if segment.should_finalize(hang_frames) {
                 let infer_start = Instant::now();
                 let text = transcribe(&mut state, &segment.samples, &settings)?;
                 let infer_ms = infer_start.elapsed().as_millis();
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
                     let mode = settings.lock().unwrap().mode;
+                    info!(?mode, source = if matches!(mode, TranscribeMode::Translate) { "system" } else { "mic" }, text = %trimmed, "FINAL");
                     emit(&tx, TranscriptEvent::Final(trimmed.to_string()));
                     match mode {
                         TranscribeMode::Input => {
                             type_text(trimmed);
                         }
                         TranscribeMode::Enter => {
-                            if should_send(trimmed) {
-                                let display_text = enter_buffer.join("\n");
-                                let inject_text = enter_buffer.join(" ");
-                                enter_buffer.clear();
-                                let clean = inject_text.trim();
-                                if !clean.is_empty() {
-                                    emit(&tx, TranscriptEvent::Sent(display_text));
-                                    type_text(clean);
-                                    type_key("Return");
+                            match LlmClassifier::classify_with_fallback(trimmed) {
+                                Some(VoiceCommand::Dictation) | None => {
+                                    enter_buffer.push(trimmed.to_string());
+                                    emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
                                 }
-                            } else if should_cancel(trimmed) {
-                                enter_buffer.clear();
-                                emit(&tx, TranscriptEvent::Cancelled);
-                            } else if let Some(prefix) = parse_newline_command(trimmed) {
-                                if !prefix.is_empty() {
-                                    enter_buffer.push(prefix.to_string());
+                                Some(cmd) => {
+                                    execute_command(&cmd, &mut enter_buffer, &tx);
                                 }
-                                let inject_text = enter_buffer.join(" ");
-                                enter_buffer.clear();
-                                if !inject_text.is_empty() {
-                                    type_text(inject_text.trim());
-                                }
-                                type_shift_return();
-                                emit(&tx, TranscriptEvent::Newline);
-                            } else {
-                                enter_buffer.push(trimmed.to_string());
-                                emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
                             }
                         }
                         TranscribeMode::Translate => {}
                     }
-                    debug!(
-                        infer_ms,
-                        samples = segment.samples.len(),
-                        "final emitted"
-                    );
+                    debug!(infer_ms, samples = segment.samples.len(), "final emitted");
                 } else {
                     emit(&tx, TranscriptEvent::PartialCleared);
                 }
@@ -273,33 +310,14 @@ fn run_audio_pipeline(
                             type_text(trimmed);
                         }
                         TranscribeMode::Enter => {
-                            if should_send(trimmed) {
-                                let display_text = enter_buffer.join("\n");
-                                let inject_text = enter_buffer.join(" ");
-                                enter_buffer.clear();
-                                let clean = inject_text.trim();
-                                if !clean.is_empty() {
-                                    emit(&tx, TranscriptEvent::Sent(display_text));
-                                    type_text(clean);
-                                    type_key("Return");
+                            match LlmClassifier::classify_with_fallback(trimmed) {
+                                Some(VoiceCommand::Dictation) | None => {
+                                    enter_buffer.push(trimmed.to_string());
+                                    emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
                                 }
-                            } else if should_cancel(trimmed) {
-                                enter_buffer.clear();
-                                emit(&tx, TranscriptEvent::Cancelled);
-                            } else if let Some(prefix) = parse_newline_command(trimmed) {
-                                if !prefix.is_empty() {
-                                    enter_buffer.push(prefix.to_string());
+                                Some(cmd) => {
+                                    execute_command(&cmd, &mut enter_buffer, &tx);
                                 }
-                                let inject_text = enter_buffer.join(" ");
-                                enter_buffer.clear();
-                                if !inject_text.is_empty() {
-                                    type_text(inject_text.trim());
-                                }
-                                type_shift_return();
-                                emit(&tx, TranscriptEvent::Newline);
-                            } else {
-                                enter_buffer.push(trimmed.to_string());
-                                emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
                             }
                         }
                         TranscribeMode::Translate => {}
@@ -311,8 +329,57 @@ fn run_audio_pipeline(
     }
 
     info!("stopping capture");
-    let _ = capture_thread.join();
+    if let Some(handle) = capture_handle.take() {
+        capture_running_flag.store(false, Ordering::SeqCst);
+        let _ = handle.join();
+    }
     Ok(())
+}
+
+fn execute_command(
+    cmd: &VoiceCommand,
+    enter_buffer: &mut Vec<String>,
+    tx: &Sender<TranscriptEvent>,
+) {
+    match cmd {
+        VoiceCommand::Send => {
+            let display_text = enter_buffer.join("\n");
+            let inject_text = enter_buffer.join(" ");
+            enter_buffer.clear();
+            let clean = inject_text.trim();
+            if !clean.is_empty() {
+                emit(tx, TranscriptEvent::Sent(display_text));
+                type_text(clean);
+                type_key("Return");
+            }
+        }
+        VoiceCommand::Cancel => {
+            enter_buffer.clear();
+            emit(tx, TranscriptEvent::Cancelled);
+        }
+        VoiceCommand::Newline => {
+            let inject_text = enter_buffer.join(" ");
+            enter_buffer.clear();
+            if !inject_text.is_empty() {
+                type_text(inject_text.trim());
+            }
+            type_shift_return();
+            emit(tx, TranscriptEvent::Newline);
+        }
+        VoiceCommand::SendTo { target } => {
+            let display_text = enter_buffer.join("\n");
+            let inject_text = enter_buffer.join(" ");
+            enter_buffer.clear();
+            let clean = inject_text.trim();
+            if !clean.is_empty() {
+                emit(tx, TranscriptEvent::SentTo(display_text, target.clone()));
+                focus_window_and_type(target, clean);
+            }
+        }
+        VoiceCommand::Dictation => {
+            // handled by caller — pushes to enter_buffer
+        }
+    }
 }
 
 /// Fan-out: send to the UI channel AND echo to stdout for debugging.
@@ -324,7 +391,7 @@ fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
         TranscriptEvent::Buffered(n) => {
             let stdout = std::io::stdout();
             let mut h = stdout.lock();
-                    let _ = write!(h, "\r\x1b[2K[buffered] {n} line(s) waiting for keyword");
+            let _ = write!(h, "\r\x1b[2K[buffered] {n} line(s) waiting for keyword");
             let _ = h.flush();
         }
         TranscriptEvent::Sent(s) => {
@@ -343,6 +410,12 @@ fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
             let stdout = std::io::stdout();
             let mut h = stdout.lock();
             let _ = write!(h, "\r\x1b[2K[cancelled] buffer cleared\n");
+            let _ = h.flush();
+        }
+        TranscriptEvent::SentTo(_, target) => {
+            let stdout = std::io::stdout();
+            let mut h = stdout.lock();
+            let _ = write!(h, "\r\x1b[2K[sent_to]  {target}\n");
             let _ = h.flush();
         }
     }
@@ -387,8 +460,8 @@ impl SpeechSegment {
         self.started_speaking && self.trailing_silence_frames == 0
     }
 
-    fn should_finalize(&self) -> bool {
-        self.started_speaking && self.trailing_silence_frames >= VAD_HANG_FRAMES
+    fn should_finalize(&self, hang_frames: usize) -> bool {
+        self.started_speaking && self.trailing_silence_frames >= hang_frames
     }
 
     fn reset(&mut self) {
@@ -504,6 +577,147 @@ where
 
     drop(stream);
     Ok(())
+}
+
+fn run_capture_system<P>(mut producer: P, running: Arc<AtomicBool>) -> Result<()>
+where
+    P: Producer<Item = f32> + Send + 'static,
+{
+    let sink_target = get_default_sink_target();
+    info!(target = %sink_target, "capturing system audio from sink monitor");
+
+    let mut child = std::process::Command::new("pw-record")
+        .args([
+            "--raw",
+            "--target",
+            &sink_target,
+            // Force the capture stream to connect to the sink's monitor ports
+            // instead of the default source. Without this, pw-record silently
+            // links to the microphone input even when --target points to a sink.
+            "-P",
+            "stream.capture.sink=true",
+            "--format",
+            "f32",
+            "--rate",
+            "48000",
+            "--channels",
+            "2",
+            "-",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("failed to spawn pw-record")?;
+
+    // forward stderr to logs in the background
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines().map_while(|r| r.ok()) {
+                warn!(target: "pw-record", "{}", line);
+            }
+        });
+    }
+
+    let stdout = child
+        .stdout
+        .take()
+        .context("pw-record stdout not available")?;
+
+    let mut reader = std::io::BufReader::new(stdout);
+    let mut buf = [0u8; 4096 * 4];
+    let mut resampler = Resampler16k::new(48000).context("building resampler 48000->16000")?;
+
+    let mut bytes_total: u64 = 0;
+    let mut last_log = Instant::now();
+
+    while running.load(Ordering::SeqCst) {
+        let n = match reader.read(&mut buf) {
+            Ok(0) => {
+                warn!("pw-record stdout EOF (process exited)");
+                break;
+            }
+            Ok(n) => n,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::WouldBlock {
+                    std::thread::sleep(Duration::from_millis(5));
+                    continue;
+                }
+                return Err(e).context("reading pw-record stdout");
+            }
+        };
+
+        bytes_total += n as u64;
+        if last_log.elapsed() >= Duration::from_secs(2) {
+            info!(bytes_per_sec = bytes_total / 2, "pw-record throughput");
+            bytes_total = 0;
+            last_log = Instant::now();
+        }
+
+        let samples_f32: Vec<f32> = buf[..n]
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+
+        let mono = to_mono(&samples_f32, 2);
+        let resampled = resampler.process(&mono);
+        push_samples(&mut producer, &resampled);
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    Ok(())
+}
+
+/// Returns the node.name of the current default audio sink. `pw-record --target <name>`
+/// captures from the sink's monitor port. Falling back to `@DEFAULT_AUDIO_SINK@`
+/// lets pipewire pick the default at runtime.
+fn get_default_sink_target() -> String {
+    // Query pipewire for the default sink's node.name via pw-dump.
+    let dump = match std::process::Command::new("pw-dump").output() {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return "@DEFAULT_AUDIO_SINK@".to_string(),
+    };
+
+    let value: serde_json::Value = match serde_json::from_slice(&dump) {
+        Ok(v) => v,
+        Err(_) => return "@DEFAULT_AUDIO_SINK@".to_string(),
+    };
+
+    // Step 1: find default sink name from Metadata object.
+    let default_sink_name = value.as_array().and_then(|arr| {
+        arr.iter().find_map(|obj| {
+            if obj.get("type").and_then(|v| v.as_str()) != Some("PipeWire:Interface:Metadata") {
+                return None;
+            }
+            if obj
+                .get("props")
+                .and_then(|p| p.get("metadata.name"))
+                .and_then(|v| v.as_str())
+                != Some("default")
+            {
+                return None;
+            }
+            obj.get("metadata")
+                .and_then(|m| m.as_array())
+                .and_then(|entries| {
+                    entries.iter().find_map(|entry| {
+                        if entry.get("key").and_then(|v| v.as_str()) == Some("default.audio.sink") {
+                            entry
+                                .get("value")
+                                .and_then(|v| v.get("name"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                })
+        })
+    });
+
+    default_sink_name.unwrap_or_else(|| "@DEFAULT_AUDIO_SINK@".to_string())
 }
 
 /// averages interleaved channels down to mono
@@ -690,14 +904,9 @@ fn type_text(text: &str) {
     if text.is_empty() {
         return;
     }
-    if let Ok(found) = std::process::Command::new("which")
-        .arg("wtype")
-        .output()
-    {
+    if let Ok(found) = std::process::Command::new("which").arg("wtype").output() {
         if found.status.success() {
-            let result = std::process::Command::new("wtype")
-                .arg(text)
-                .output();
+            let result = std::process::Command::new("wtype").arg(text).output();
             match result {
                 Ok(o) if o.status.success() => {
                     debug!(text = %text, "injected via wtype");
@@ -712,10 +921,7 @@ fn type_text(text: &str) {
             return;
         }
     }
-    if let Ok(found) = std::process::Command::new("which")
-        .arg("xdotool")
-        .output()
-    {
+    if let Ok(found) = std::process::Command::new("which").arg("xdotool").output() {
         if found.status.success() {
             let result = std::process::Command::new("xdotool")
                 .args(["type", "--clearmodifiers", text])
@@ -738,10 +944,7 @@ fn type_text(text: &str) {
 }
 
 fn type_key(key: &str) {
-    if let Ok(found) = std::process::Command::new("which")
-        .arg("wtype")
-        .output()
-    {
+    if let Ok(found) = std::process::Command::new("which").arg("wtype").output() {
         if found.status.success() {
             let result = std::process::Command::new("wtype")
                 .args(["-k", key])
@@ -756,10 +959,7 @@ fn type_key(key: &str) {
             return;
         }
     }
-    if let Ok(found) = std::process::Command::new("which")
-        .arg("xdotool")
-        .output()
-    {
+    if let Ok(found) = std::process::Command::new("which").arg("xdotool").output() {
         if found.status.success() {
             let result = std::process::Command::new("xdotool")
                 .args(["key", key])
@@ -776,10 +976,7 @@ fn type_key(key: &str) {
 }
 
 fn type_shift_return() {
-    if let Ok(found) = std::process::Command::new("which")
-        .arg("wtype")
-        .output()
-    {
+    if let Ok(found) = std::process::Command::new("which").arg("wtype").output() {
         if found.status.success() {
             let result = std::process::Command::new("wtype")
                 .args(["-M", "shift", "-k", "Return"])
@@ -794,10 +991,7 @@ fn type_shift_return() {
             return;
         }
     }
-    if let Ok(found) = std::process::Command::new("which")
-        .arg("xdotool")
-        .output()
-    {
+    if let Ok(found) = std::process::Command::new("which").arg("xdotool").output() {
         if found.status.success() {
             let result = std::process::Command::new("xdotool")
                 .args(["key", "Shift+Return"])
@@ -811,85 +1005,73 @@ fn type_shift_return() {
     }
 }
 
-const SEND_KEYWORDS: &[&str] = &[
-    "envia",
-    "enviar",
-    "manda",
-    "mandar",
-    "cambio",
-    "câmbio",
-    "pronto",
-];
+fn focus_window_and_type(target: &str, text: &str) {
+    let clients_output = match std::process::Command::new("hyprctl")
+        .args(["clients", "-j"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => {
+            type_text(text);
+            type_key("Return");
+            return;
+        }
+    };
 
-const CANCEL_KEYWORDS: &[&str] = &[
-    "cancela",
-    "cancelar",
-    "limpa",
-    "limpar",
-    "apaga tudo",
-    "descarta",
-];
+    let stdout = String::from_utf8_lossy(&clients_output.stdout);
+    let json: serde_json::Value = match serde_json::from_str(&stdout) {
+        Ok(v) => v,
+        Err(_) => {
+            type_text(text);
+            type_key("Return");
+            return;
+        }
+    };
 
-const NEWLINE_KEYWORDS: &[&str] = &[
-    "nova linha",
-    "quebra de linha",
-    "quebra linha",
-    "pula linha",
-    "nova linha",
-    "new line",
-    "newline",
-    "enter",
-];
+    let clients = match json.as_array() {
+        Some(a) => a,
+        None => {
+            type_text(text);
+            type_key("Return");
+            return;
+        }
+    };
 
-fn should_send(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    let words: Vec<&str> = lower
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .collect();
-    if words.len() > 3 {
-        return false;
-    }
-    for kw in SEND_KEYWORDS {
-        if words.iter().any(|w| *w == *kw) {
-            return true;
+    let mut matched = None;
+    for client in clients.iter().rev() {
+        let class = client
+            .get("class")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let title = client
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let target_lower = target.to_lowercase();
+        if class.contains(&target_lower)
+            || title.contains(&target_lower)
+            || target_lower.contains(&class)
+        {
+            matched = Some(client.clone());
+            break;
         }
     }
-    false
-}
 
-fn should_cancel(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    let words: Vec<&str> = lower
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .collect();
-    if words.len() > 3 {
-        return false;
-    }
-    for kw in CANCEL_KEYWORDS {
-        if words.iter().any(|w| *w == *kw) {
-            return true;
+    if let Some(client) = matched {
+        let address = client.get("address").and_then(|v| v.as_str()).unwrap_or("");
+        if !address.is_empty() {
+            let _ = std::process::Command::new("hyprctl")
+                .args(["dispatch", "focuswindow", &format!("address:{address}")])
+                .output();
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
-    false
-}
 
-fn parse_newline_command(text: &str) -> Option<&str> {
-    let lower = text.to_lowercase();
-    for kw in NEWLINE_KEYWORDS {
-        if lower.ends_with(kw) {
-            let prefix = text[..text.len() - kw.len()].trim();
-            if !prefix.is_empty() {
-                return Some(prefix);
-            }
-            return Some("");
-        }
-        if lower.trim() == *kw {
-            return Some("");
-        }
-    }
-    None
+    type_text(text);
+    type_key("Return");
+    info!(target = %target, "sent text to target window");
 }
 
 // ---- overlay UI ----
@@ -969,7 +1151,13 @@ fn try_hyprland_float() {
                         let y = ((logical_h - win_h - 60.0) / 1.0) as i64;
                         let pos = format!("{x} {y}");
                         let _ = std::process::Command::new("hyprctl")
-                            .args(["dispatch", "movewindowpixel", "exact", &pos, "class:oc-voice"])
+                            .args([
+                                "dispatch",
+                                "movewindowpixel",
+                                "exact",
+                                &pos,
+                                "class:oc-voice",
+                            ])
                             .output();
                         let size = format!("{} {}", win_w as i64, win_h as i64);
                         let _ = std::process::Command::new("hyprctl")
@@ -1089,6 +1277,16 @@ impl eframe::App for OverlayApp {
                         self.finals.drain(..excess);
                     }
                 }
+                TranscriptEvent::SentTo(_, target) => {
+                    self.partial.clear();
+                    self.buffered = 0;
+                    self.finals.push(format!("[sent_to] {target}"));
+                    let max_keep = 4;
+                    if self.finals.len() > max_keep {
+                        let excess = self.finals.len() - max_keep;
+                        self.finals.drain(..excess);
+                    }
+                }
             }
         }
 
@@ -1102,13 +1300,19 @@ impl eframe::App for OverlayApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let panel_size = ui.available_size();
         let bg = egui::Frame::new()
             .fill(egui::Color32::from_black_alpha(200))
             .corner_radius(10.0)
             .inner_margin(egui::Margin::symmetric(16, 12));
 
         bg.show(ui, |ui| {
+            ui.set_min_size(panel_size);
+            ui.set_width(panel_size.x);
+
             ui.vertical(|ui| {
+                ui.set_width(ui.available_width());
+
                 for line in &self.finals {
                     ui.label(
                         egui::RichText::new(line)
@@ -1126,21 +1330,27 @@ impl eframe::App for OverlayApp {
                 }
                 if self.finals.is_empty() && self.partial.is_empty() && self.buffered == 0 {
                     ui.label(
-                        egui::RichText::new("[ speak into the mic \u{2014} say \"envia\" to send ]")
-                            .color(egui::Color32::from_gray(120))
-                            .italics()
-                            .size(14.0),
+                        egui::RichText::new(
+                            "[ speak into the mic \u{2014} say \"envia\" to send ]",
+                        )
+                        .color(egui::Color32::from_gray(120))
+                        .italics()
+                        .size(14.0),
                     );
                 }
                 if self.buffered > 0 {
                     ui.label(
-                        egui::RichText::new(format!("{} line(s) buffered \u{2014} say \"cambio\" to send", self.buffered))
-                            .color(egui::Color32::from_rgb(255, 200, 80))
-                            .size(14.0),
+                        egui::RichText::new(format!(
+                            "{} line(s) buffered \u{2014} say \"cambio\" to send",
+                            self.buffered
+                        ))
+                        .color(egui::Color32::from_rgb(255, 200, 80))
+                        .size(14.0),
                     );
                 }
 
-                ui.add_space(8.0);
+                let remaining = (ui.available_height() - 28.0).max(8.0);
+                ui.add_space(remaining);
 
                 ui.horizontal(|ui| {
                     if ui.button("\u{2699} Settings").clicked() {
