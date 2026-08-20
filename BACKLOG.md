@@ -469,7 +469,7 @@ Documentar `just run-cpu` e medir a latência real de `large-v3-turbo` em CPU �
 
 Os modos de hoje misturam duas dimensões independentes: **de onde vem o áudio** (microfone ou sistema) e **o que fazer com ele** (ditar, comandar, transcrever, traduzir). `Translate` é o sintoma: o nome promete tradução, mas o que ele faz é *capturar áudio do sistema e pedir o task translate do whisper*. Separar as duas dimensões é o que destrava os dois itens abaixo.
 
-### M7.1 — Sessão gravada com relatório ✅
+### M7.1 — Sessão gravada com relatório ✅ `38ced7c`
 
 Hoje o overlay mostra as últimas quatro linhas e esquece o resto. Para acompanhar uma reunião é preciso o oposto: capturar tudo, do início ao fim, e produzir um documento no final.
 
@@ -483,7 +483,7 @@ Isso é ortogonal à fonte: deve funcionar gravando o microfone (uma ideia falad
 
 **Aceite:** abrir sessão, falar em três momentos separados, encerrar, e o arquivo conter as três falas com timestamps plausíveis. Sessão aberta sem indicação no overlay reprova o item.
 
-### M7.2 — Tradução para leitura, com o original preservado ✅
+### M7.2 — Tradução para leitura, com o original preservado ✅ `1f00b10`
 
 **O whisper não faz o que o modo prometia.** Ele tem duas tarefas: `transcribe`, que devolve o idioma da fonte, e `translate`, que devolve **inglês, e só inglês** — não existe alvo configurável. O `language` é dica da *fonte*, não destino, e o comentário do `whisper-rs` que afirma o contrário está errado. Numa reunião em inglês, `translate` é operação nula; e com um idioma fixo na UI o whisper era instruído a decodificar inglês como português, devolvendo ruído (`.`, `O que é?`). Corrigido em `7716073`: em Translate a fonte é sempre detectada.
 
