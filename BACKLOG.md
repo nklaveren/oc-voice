@@ -403,7 +403,7 @@ O prefixo não substitui o filtro de contagem de palavras de M1.1 — ele age an
 
 **Decisão de implementação:** o prefixo é controlado por `require_prefix` (default `false`) na seção do idioma. Ligado por config, não por presença de palavras na lista — o default com prefixo obrigatório quebraria o aceite de M1.3 ("rodar sem config funciona igual a hoje", onde "câmbio" sozinho envia). Com `require_prefix = false`, o prefixo é aceito mas não exigido.
 
-### M4.2 — Modo `Command` ✅
+### M4.2 — Modo `Command` ✅ `57b3f9e`
 
 `TranscribeMode` já tem `Input`, `Translate` e `Enter`. Adicionar `Command`, onde tudo é interpretado como comando de WM e nada é ditado — sem precisar do prefixo.
 
