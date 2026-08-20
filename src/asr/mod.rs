@@ -22,7 +22,7 @@ pub fn transcribe(
     params.set_split_on_word(true);
 
     let (lang, translate) = {
-        let s = settings.lock().unwrap();
+        let s = crate::lock_settings(settings);
         (s.language.clone(), s.mode == TranscribeMode::Translate)
     };
     if lang == "auto" {

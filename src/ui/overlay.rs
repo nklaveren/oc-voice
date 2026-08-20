@@ -48,6 +48,7 @@ struct OverlayApp {
     finals: Vec<String>,
     buffered: usize,
     show_settings: bool,
+    pipeline_failed: bool,
 }
 
 const LANGUAGES: &[&str] = &["auto", "pt", "en", "es", "fr", "de", "ja", "zh"];
@@ -66,19 +67,22 @@ impl OverlayApp {
             finals: Vec::new(),
             buffered: 0,
             show_settings: false,
+            pipeline_failed: false,
         }
     }
-}
 
-impl eframe::App for OverlayApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // fully transparent background; we draw our own panel on top
-        [0.0, 0.0, 0.0, 0.0]
-    }
-
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Drain all pending transcription events before painting the UI.
-        while let Ok(event) = self.rx.try_recv() {
+    fn drain_events(&mut self) {
+        loop {
+            let event = match self.rx.try_recv() {
+                Ok(event) => event,
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    // The sender lives in the pipeline thread; a disconnect means
+                    // the thread died (panic or error) while we are still running.
+                    self.pipeline_failed = true;
+                    break;
+                }
+            };
             match event {
                 TranscriptEvent::Partial(s) => self.partial = s,
                 TranscriptEvent::PartialCleared => self.partial.clear(),
@@ -136,6 +140,18 @@ impl eframe::App for OverlayApp {
                 }
             }
         }
+    }
+}
+
+impl eframe::App for OverlayApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // fully transparent background; we draw our own panel on top
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Drain all pending transcription events before painting the UI.
+        self.drain_events();
 
         // If the pipeline has signalled shutdown, close the window.
         if !self.running.load(Ordering::SeqCst) {
@@ -159,6 +175,17 @@ impl eframe::App for OverlayApp {
 
             ui.vertical(|ui| {
                 ui.set_width(ui.available_width());
+
+                if self.pipeline_failed {
+                    ui.label(
+                        egui::RichText::new(
+                            "[ audio pipeline crashed \u{2014} close and restart oc-voice ]",
+                        )
+                        .color(egui::Color32::from_rgb(255, 90, 90))
+                        .strong()
+                        .size(18.0),
+                    );
+                }
 
                 for line in &self.finals {
                     ui.label(
@@ -246,5 +273,40 @@ impl eframe::App for OverlayApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.running.store(false, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app_with_channel() -> (OverlayApp, crossbeam_channel::Sender<TranscriptEvent>) {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let running = Arc::new(AtomicBool::new(true));
+        let settings = Arc::new(Mutex::new(AppSettings {
+            language: "pt".to_string(),
+            mode: TranscribeMode::Enter,
+        }));
+        (OverlayApp::new(rx, running, settings), tx)
+    }
+
+    #[test]
+    fn dead_pipeline_sets_failure_state() {
+        // Dropping the sender is what a panicking pipeline thread does: the
+        // overlay must notice instead of looking normal.
+        let (mut app, tx) = app_with_channel();
+        drop(tx);
+        app.drain_events();
+        assert!(app.pipeline_failed);
+    }
+
+    #[test]
+    fn live_pipeline_does_not_set_failure_state() {
+        let (mut app, tx) = app_with_channel();
+        tx.send(TranscriptEvent::Partial("hello".to_string()))
+            .unwrap();
+        app.drain_events();
+        assert!(!app.pipeline_failed);
+        assert_eq!(app.partial, "hello");
     }
 }

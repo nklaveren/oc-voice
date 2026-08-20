@@ -92,7 +92,7 @@ Exceção legítima: `commands.rs` pode conter o TOML default embutido via `incl
 
 O gate também precisou passar a **ignorar blocos `#[cfg(test)]`**: os testes do matcher contêm por construção as palavras que eles casam, então o gate como escrito exigia apagar cobertura de teste para ficar verde — ele reprovava `assert_eq!(classify("envia"), ...)`. Corrigido em `6e493ef`; restam 25 ocorrências reais, 23 em `commands/mod.rs` e 2 nas dicas do overlay.
 
-### M0.5 — Pânico silencioso na thread de áudio
+### M0.5 — Pânico silencioso na thread de áudio ✅ `08d2a2e`
 
 O pipeline roda em thread separada e trata `Err`, mas não trata pânico:
 
@@ -110,6 +110,8 @@ Duas partes:
 2. Trocar os `unwrap()` do caminho de áudio por erro tratado. `settings.lock().unwrap()` em mutex envenenado é o caso mais provável.
 
 **Aceite:** com um pânico injetado em `run_audio_pipeline`, o overlay mostra estado de falha em vez de silêncio. `clippy::unwrap_used` negado nos módulos do caminho de áudio.
+
+**Feito.** A detecção usa o canal: o `Sender` mora na thread do pipeline, então pânico ou erro derrubam a thread, o canal desconecta e o overlay pinta o estado de falha — não precisa de `is_finished()`. Os `unwrap()` do caminho de áudio viraram `lock_settings`, que recupera mutex envenenado (`AppSettings` é dado puro). O `deny(clippy::unwrap_used)` foi aplicado nas declarações `mod asr;` / `mod audio;` e na `fn run_audio_pipeline` — `main.rs` é a raiz do crate, então um atributo inner ali negaria o lint no crate inteiro, incluindo overlay e o `FakeRunner` de teste, que não são caminho de áudio. O `join()` final agora loga o payload do pânico em vez de descartar com `let _`. A referência a `LANGUAGES` em M1.3 andou uma linha para baixo (campo novo no `OverlayApp`) e foi atualizada aqui.
 
 ### M0.3 — Renomear o binário ✅ `7859cf9`
 
@@ -202,7 +204,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:53`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:54`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 

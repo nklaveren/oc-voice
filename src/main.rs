@@ -9,7 +9,9 @@
 //! Usage: oc-voice <path-to-ggml-model.bin>
 
 use anyhow::{anyhow, Context, Result};
+#[deny(clippy::unwrap_used)]
 mod asr;
+#[deny(clippy::unwrap_used)]
 mod audio;
 mod commands;
 mod input;
@@ -90,6 +92,13 @@ pub struct AppSettings {
     pub mode: TranscribeMode,
 }
 
+/// Lock shared settings, recovering from mutex poisoning. A poisoned lock
+/// means another thread panicked while holding it; AppSettings is plain data,
+/// so taking the guard anyway is safe and keeps the pipeline alive.
+pub fn lock_settings(settings: &Mutex<AppSettings>) -> std::sync::MutexGuard<'_, AppSettings> {
+    settings.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -146,11 +155,14 @@ fn main() -> Result<()> {
 
     // Once the window is gone, tell the pipeline to shut down and wait.
     running.store(false, Ordering::SeqCst);
-    let _ = pipeline_handle.join();
+    if let Err(e) = pipeline_handle.join() {
+        error!(panic = ?e, "audio pipeline thread panicked");
+    }
     Ok(())
 }
 
 /// Owns whisper, VAD, cpal, and runs the main transcription loop.
+#[deny(clippy::unwrap_used)]
 fn run_audio_pipeline(
     model_path: &str,
     running: Arc<AtomicBool>,
@@ -195,7 +207,7 @@ fn run_audio_pipeline(
     info!("speak into the mic; close the overlay window or press Ctrl+C to exit");
 
     while running.load(Ordering::SeqCst) {
-        let mode = settings.lock().unwrap().mode;
+        let mode = lock_settings(&settings).mode;
         let is_translate = mode == TranscribeMode::Translate;
 
         if last_mode != Some(mode) || capture_handle.is_none() {
@@ -287,7 +299,7 @@ fn run_audio_pipeline(
                 let infer_ms = infer_start.elapsed().as_millis();
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
-                    let mode = settings.lock().unwrap().mode;
+                    let mode = lock_settings(&settings).mode;
                     info!(?mode, source = if matches!(mode, TranscribeMode::Translate) { "system" } else { "mic" }, text = %trimmed, "FINAL");
                     emit(&tx, TranscriptEvent::Final(trimmed.to_string()));
                     match mode {
@@ -316,7 +328,7 @@ fn run_audio_pipeline(
                 let text = transcribe(&mut state, &segment.samples, &settings)?;
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
-                    let mode = settings.lock().unwrap().mode;
+                    let mode = lock_settings(&settings).mode;
                     emit(&tx, TranscriptEvent::Final(trimmed.to_string()));
                     match mode {
                         TranscribeMode::Input => {
