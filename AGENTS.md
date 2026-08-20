@@ -40,7 +40,9 @@
 
 ## How to work here
 
-1. Enter the environment with `nix develop`.
+1. Enter the environment with `nix develop`. `just` and `cargo` do NOT exist
+   outside it — from outside, prefix everything with `nix develop --command`.
+   The committed `.envrc` makes direnv do this automatically.
 2. `just fetch-model` downloads the Whisper model (~874 MB) on first use.
 3. `just run` for the default CUDA path, `just run-cpu` when no GPU is available.
 4. `just check` before wrapping up — it runs the size ceiling (`limits`), the docs

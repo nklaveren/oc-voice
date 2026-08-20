@@ -90,12 +90,28 @@ that start with the prefix word ("computador, câmbio").
 ## Running
 
 ```bash
-nix develop
+nix develop       # required: just and cargo live only inside the dev shell
 just run          # downloads ggml-large-v3-turbo-q8_0.bin (~874 MB) on first use
 ```
 
-`just check` runs the full gate suite: clippy, fmt, tests, a per-file size
-ceiling, a hardcoded-vocabulary ban, and a docs reference checker.
+`just` is **not** installed system-wide — it comes from the flake. Outside the
+shell, prefix commands with `nix develop --command`:
+
+```bash
+nix develop --command just check
+```
+
+With [direnv](https://direnv.net) + `nix-direnv`, the committed `.envrc`
+enters the shell automatically on `cd` (run `direnv allow` once):
+
+```nix
+# NixOS configuration
+programs.direnv = { enable = true; nix-direnv.enable = true; };
+```
+
+`just --list` shows every recipe. `just check` runs the full gate suite:
+clippy, fmt, tests, a per-file size ceiling, a hardcoded-vocabulary ban, and
+a docs reference checker.
 
 ## CPU fallback
 

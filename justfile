@@ -11,6 +11,7 @@ model_url := "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + mode
 default:
     @just --list
 
+# Download the Whisper model into models/
 fetch-model:
     mkdir -p {{ models_dir }}
     if [ ! -f {{ models_dir }}/{{ model_name }} ]; then \
@@ -20,30 +21,34 @@ fetch-model:
         echo "{{ model_name }} already present"; \
     fi
 
+# Release build
 build:
     cargo build --release
 
-# Interactive matcher probe: type utterances, see the whole decision chain
-# with scores. Reads live windows/monitors; never dispatches or types.
+# Type utterances, see the matcher's whole decision chain with scores
 probe:
     cargo run --release -- probe
 
+# Same as `probe`, against the English vocabulary
 probe-en:
     cargo run --release -- probe en
 
+# Fetch the model if needed, then run (CUDA)
 run: fetch-model
     cargo run --release -- {{ models_dir }}/{{ model_name }}
 
+# Run on CPU — ~17x slower than realtime, see README
 run-cpu: fetch-model
     cargo run --release --no-default-features --features cpu -- {{ models_dir }}/{{ model_name }}
 
+# Full gate suite: limits, refs, vocab, check, clippy, fmt, test
 check: limits refs vocab
     cargo check
     cargo clippy --all-targets -- -D warnings
     cargo fmt --check
     cargo test
 
-# Fail if any source file grew past the module size ceiling.
+# Fail if any source file grew past the module size ceiling
 limits:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -62,10 +67,7 @@ limits:
     fi
     echo "limits ok: no source file over {{ max_file_lines }} lines"
 
-# Fail on spoken vocabulary or known app names in src/ string literals.
-# Green since M2.1 moved the vocabulary to commands.toml, and part of
-# `just check` from then on. #[cfg(test)] blocks are skipped: matcher tests
-# must contain the words they match against.
+# Fail on spoken vocabulary or app names hardcoded in src/ (test code exempt)
 vocab:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -96,9 +98,7 @@ vocab:
     fi
     echo "vocab ok: no spoken vocabulary or app names in src/ string literals"
 
-# Fail on stale file:line references in the docs. Every `file:line` reference
-# must name its symbol in backticks next to it — that is what gets checked.
-# See M0.4 in BACKLOG.md.
+# Fail on stale file:line references in the docs (M0.4)
 refs:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -150,9 +150,11 @@ refs:
     fi
     echo "refs ok: every file:line in the docs still names its symbol"
 
+# Apply rustfmt
 fmt:
     cargo fmt
 
+# Remove build artifacts and downloaded models
 clean:
     cargo clean
     rm -rf {{ models_dir }}
