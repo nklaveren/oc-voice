@@ -36,6 +36,8 @@ fn embedded_bindings_are_internally_consistent() {
         "focus_monitor",
         "focus_monitor_name",
         "focus_window",
+        "next_window",
+        "previous_window",
     ];
     const KNOWN_SLOTS: &[&str] = &["direcao", "numero", "alvo", "monitor"];
     let c = Config::embedded();

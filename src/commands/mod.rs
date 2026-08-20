@@ -21,6 +21,10 @@ pub enum VoiceCommand {
     SessionStart,
     #[serde(rename = "session_stop")]
     SessionStop,
+    /// List what can be said, from any mode. A closed vocabulary is only
+    /// usable if you can find out what is in it without reading the config.
+    #[serde(rename = "help")]
+    Help,
     /// Switch transcription mode by voice, from any mode (M4.2). The value
     /// is the language-neutral mode name from the vocabulary.
     #[serde(rename = "set_mode")]
@@ -34,6 +38,93 @@ pub enum VoiceCommand {
 /// Similarity matching against the closed command vocabulary — see M1.1/M1.2
 /// in BACKLOG.md. Utterances with no candidate of the same word count are
 /// refused before scoring and fall through to dictation.
+/// What can be said right now, built from the active vocabulary rather than
+/// written out anywhere.
+///
+/// A list maintained by hand next to the config it describes goes stale the
+/// first time someone edits one and not the other — and a help text that
+/// lies is worse than none, because it is believed.
+pub fn help_lines(vocab: &crate::config::LangVocab) -> Vec<String> {
+    // Labels come from the config too. They are Portuguese words describing
+    // Portuguese commands, which is vocabulary by any honest reading — and
+    // `just vocab` said so when they were hardcoded here. The key is the
+    // language-neutral action name; a missing label falls back to it rather
+    // than dropping the row.
+    let label = |key: &str| -> String {
+        vocab
+            .help_labels
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| key.to_string())
+    };
+    let mut out = Vec::new();
+    let mut group = |key: &str, words: &[String]| {
+        let shown: Vec<&str> = words.iter().take(4).map(String::as_str).collect();
+        if !shown.is_empty() {
+            out.push(format!("  {:<12} {}", label(key), shown.join(" / ")));
+        }
+    };
+
+    group("send", &vocab.send);
+    group("cancel", &vocab.cancel);
+    group("newline", &vocab.newline);
+    group("session_start", &vocab.session_start);
+    group("session_stop", &vocab.session_stop);
+    group("help", &vocab.help);
+
+    if !vocab.modes.is_empty() {
+        let mut phrases: Vec<&str> = vocab.modes.keys().map(String::as_str).collect();
+        phrases.sort_unstable();
+        out.push(format!("  {:<12} {}", label("modes"), phrases.join(" / ")));
+    }
+    if let Some(example) = vocab.send_to.first() {
+        let target = vocab
+            .targets
+            .keys()
+            .next()
+            .map(String::as_str)
+            .unwrap_or("");
+        out.push(format!("  {:<12} {example} {target}", label("send_to")));
+    }
+    if !vocab.templates.is_empty() {
+        let shown: Vec<&str> = vocab
+            .templates
+            .iter()
+            .take(4)
+            .map(|t| t.pattern.as_str())
+            .collect();
+        out.push(format!(
+            "  {:<12} {}",
+            label("templates"),
+            shown.join(" / ")
+        ));
+    }
+    out
+}
+
+/// Remove the discourse words people wrap commands in, so the word-count
+/// gate sees the command itself.
+///
+/// Deliberately a closed list from the vocabulary, not "drop any extra word".
+/// The difference is the whole safety property: dropping anything unknown
+/// would turn "vamos limpar depois" into "limpar" and eat a dictated line.
+fn strip_fillers(text: &str, vocab: &crate::config::LangVocab, threshold: f64) -> String {
+    if vocab.fillers.is_empty() {
+        return text.to_string();
+    }
+    let fillers: Vec<&str> = vocab.fillers.iter().map(String::as_str).collect();
+    let kept: Vec<&str> = text
+        .split_whitespace()
+        .filter(|word| matcher::match_exact(word, &fillers, threshold).is_none())
+        .collect();
+    // An utterance made only of filler is not a command; leave it intact so
+    // it falls through to dictation rather than becoming an empty match.
+    if kept.is_empty() {
+        return text.to_string();
+    }
+    kept.join(" ")
+}
+
 /// Strip a leading prefix word ("computador, …") if one is spoken. Returns
 /// the remainder and whether a prefix was found. The prefix is matched with
 /// the same similarity pipeline as everything else — ASR mangles it too.
@@ -53,6 +144,14 @@ fn strip_prefix<'a>(
     (text, false)
 }
 
+/// Mode switching needs a near-exact match, not merely a good one.
+///
+/// Measured against a live failure rather than chosen: "Monitor direito"
+/// scored above the 0.82 command threshold against "modo ditado" and switched
+/// the mode mid-navigation. The two phrases share an opening and
+/// Jaro-Winkler rewards that.
+pub const MODE_THRESHOLD: f64 = 0.94;
+
 pub fn classify(
     text: &str,
     vocab: &crate::config::LangVocab,
@@ -69,12 +168,26 @@ pub fn classify(
         return Some(VoiceCommand::Dictation);
     }
 
+    // Measured with `oc-voice probe`, from a live report that "only câmbio
+    // works": it was not special, it was the only word being said alone.
+    // "ok câmbio" and "limpar tudo" were refused by the word-count gate
+    // before anything was scored, because no candidate has two words.
+    //
+    // The gate is right — it is what stops a dictated sentence becoming a
+    // command — so it stays, and the filler comes off first instead. Only
+    // words the vocabulary names as filler are dropped, which is why
+    // "vamos limpar depois" is still dictation: nothing there is filler, it
+    // stays three words, and the gate refuses it exactly as before.
+    let stripped = strip_fillers(text, vocab, threshold);
+    let text: &str = &stripped;
+
     for (words, command) in [
         (&vocab.send, VoiceCommand::Send),
         (&vocab.cancel, VoiceCommand::Cancel),
         (&vocab.newline, VoiceCommand::Newline),
         (&vocab.session_start, VoiceCommand::SessionStart),
         (&vocab.session_stop, VoiceCommand::SessionStop),
+        (&vocab.help, VoiceCommand::Help),
     ] {
         let refs: Vec<&str> = words.iter().map(String::as_str).collect();
         if matcher::match_exact(text, &refs, threshold).is_some() {
@@ -84,8 +197,17 @@ pub fn classify(
 
     // Mode switching: spoken phrase to language-neutral mode name. Checked
     // before send-to so "modo comando" is never read as a window target.
+    //
+    // On a harder threshold than everything else, and the reason is a bug
+    // caught in a live log: "Monitor direito" switched the mode to Input.
+    // "modo ditado" and "monitor direito" share their opening letters, and
+    // Jaro-Winkler pays a prefix bonus, so they scored above 0.82. Switching
+    // mode is rare and disruptive — it throws away the grammar the next
+    // utterance will be read with — so it earns the same treatment the
+    // resolver gives window titles: a near-exact match or nothing.
     let mode_phrases: Vec<&str> = vocab.modes.keys().map(String::as_str).collect();
-    if let Some((phrase, _)) = matcher::match_exact(text, &mode_phrases, threshold) {
+    let mode_bar = MODE_THRESHOLD.max(threshold);
+    if let Some((phrase, _)) = matcher::match_exact(text, &mode_phrases, mode_bar) {
         return Some(VoiceCommand::SetMode(vocab.modes[phrase].clone()));
     }
 
@@ -132,90 +254,5 @@ pub(crate) fn fold_diacritics(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// All command tests speak the embedded Portuguese vocabulary.
-    fn classify(text: &str) -> Option<VoiceCommand> {
-        let config = crate::config::Config::embedded();
-        let vocab = config.vocab("pt").expect("embedded pt vocab");
-        super::classify(text, vocab, config.threshold())
-    }
-
-    #[test]
-    fn accented_send_keyword_matches() {
-        // The regression: whisper emits "câmbio", the table says "cambio".
-        assert_eq!(classify("câmbio"), Some(VoiceCommand::Send));
-        assert_eq!(classify("cambio"), Some(VoiceCommand::Send));
-        assert_eq!(classify("Câmbio."), Some(VoiceCommand::Send));
-    }
-
-    #[test]
-    fn other_commands_still_match() {
-        assert_eq!(classify("envia"), Some(VoiceCommand::Send));
-        assert_eq!(classify("cancela"), Some(VoiceCommand::Cancel));
-        assert_eq!(classify("nova linha"), Some(VoiceCommand::Newline));
-        assert_eq!(
-            classify("envia para navegador"),
-            // M2.1: the target stays as spoken; resolution against live
-            // windows happens at execution time, not at classify time.
-            Some(VoiceCommand::SendTo {
-                target: "navegador".to_string()
-            })
-        );
-    }
-
-    #[test]
-    fn asr_variants_classify_through_the_public_api() {
-        // M1.2: the M1.1 measurements hold through `classify`, not just the
-        // matcher's own unit tests.
-        for spoken in ["sambio", "cambiu", "kambio", "quambio", "cambrio"] {
-            assert_eq!(classify(spoken), Some(VoiceCommand::Send), "{spoken}");
-        }
-        assert_eq!(classify("cancelar"), Some(VoiceCommand::Cancel));
-        assert_eq!(classify("nova linia"), Some(VoiceCommand::Newline));
-        for spoken in ["pronto falei", "sao paulo", "bom dia"] {
-            assert_eq!(classify(spoken), Some(VoiceCommand::Dictation), "{spoken}");
-        }
-    }
-
-    #[test]
-    fn prefix_marks_commands_when_required() {
-        // M4.1, both directions: with require_prefix on, a bare command word
-        // is literal dictation, and the prefixed form is a command.
-        let config = crate::config::Config::embedded();
-        let mut vocab = config.vocab("pt").unwrap().clone();
-        vocab.require_prefix = true;
-        let t = config.threshold();
-        assert_eq!(
-            super::classify("câmbio", &vocab, t),
-            Some(VoiceCommand::Dictation),
-            "bare command word must dictate literally"
-        );
-        assert_eq!(
-            super::classify("computador, câmbio", &vocab, t),
-            Some(VoiceCommand::Send)
-        );
-        // ASR error on the prefix itself still counts.
-        assert_eq!(
-            super::classify("comptador câmbio", &vocab, t),
-            Some(VoiceCommand::Send)
-        );
-    }
-
-    #[test]
-    fn prefix_is_optional_by_default() {
-        // Default config keeps today's behaviour: bare commands work, and the
-        // prefixed form works too.
-        assert_eq!(classify("câmbio"), Some(VoiceCommand::Send));
-        assert_eq!(classify("computador câmbio"), Some(VoiceCommand::Send));
-    }
-
-    #[test]
-    fn long_speech_is_dictation() {
-        assert_eq!(
-            classify("isso aqui e uma frase normal de ditado qualquer"),
-            Some(VoiceCommand::Dictation)
-        );
-    }
-}
+#[path = "commands_tests.rs"]
+mod tests;

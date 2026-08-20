@@ -211,6 +211,24 @@ fn speakers_are_told_apart_by_colour() {
 }
 
 #[test]
+fn every_mode_says_what_it_is_for() {
+    // The person who built this forgot what Enter mode was for. Input and
+    // Enter look identical while idle — both listen, both are about your own
+    // speech — and the difference only shows after you have committed to one.
+    let mut seen = std::collections::HashSet::new();
+    for mode in [
+        TranscribeMode::Input,
+        TranscribeMode::Enter,
+        TranscribeMode::Command,
+        TranscribeMode::Translate,
+    ] {
+        let hint = mode_hint(mode);
+        assert!(!hint.is_empty(), "{mode:?} has no description");
+        assert!(seen.insert(hint), "{mode:?} reuses another mode's words");
+    }
+}
+
+#[test]
 fn markers_drawn_next_to_speech_are_ascii() {
     // The bundled font has no ↳; every translated line carried an empty box
     // where the marker should be. A missing glyph is not something the

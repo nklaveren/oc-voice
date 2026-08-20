@@ -54,6 +54,16 @@ pub struct LangVocab {
     pub session_stop: Vec<String>,
     pub confirm: Vec<String>,
     pub deny: Vec<String>,
+    /// Ask what can be said (M4.4).
+    pub help: Vec<String>,
+    /// Labels for the help listing, keyed by language-neutral action name.
+    /// They describe commands in the user's language, so they are vocabulary
+    /// and live here rather than in the source.
+    pub help_labels: HashMap<String, String>,
+    /// Discourse words people wrap commands in — "ok, câmbio", "limpar tudo".
+    /// Removed before the word-count gate counts, so a command spoken the way
+    /// people actually speak still reaches the matcher.
+    pub fillers: Vec<String>,
     pub numbers: HashMap<String, u32>,
     pub directions: HashMap<String, String>,
     pub targets: HashMap<String, Vec<String>>,

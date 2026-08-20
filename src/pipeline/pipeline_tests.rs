@@ -41,6 +41,28 @@ fn your_own_voice_is_never_put_through_whispers_translator() {
 }
 
 #[test]
+fn composing_modes_never_ask_for_a_translation() {
+    // I got this wrong once in the other direction. Showing both languages is
+    // useful while *following* someone — and pure noise while *composing*,
+    // where a second rendering under every line is something to read past on
+    // the way to the text you are actually writing. The mode decides, not the
+    // detected language.
+    for mode in [
+        TranscribeMode::Input,
+        TranscribeMode::Enter,
+        TranscribeMode::Command,
+    ] {
+        for (source, translate) in streams_for(mode) {
+            assert!(!translate, "{mode:?} would translate its {source:?} stream");
+        }
+    }
+    // And the subtitle mode still does, for the meeting side.
+    assert!(streams_for(TranscribeMode::Translate)
+        .iter()
+        .any(|(source, translate)| *source == Source::System && *translate));
+}
+
+#[test]
 fn only_the_microphone_may_act_on_what_it_hears() {
     // A meeting that happens to say the stop word must not close your
     // recording, and it must never reach the window manager or the keyboard.

@@ -185,7 +185,8 @@ impl OverlayApp {
 
                     // Emoji come from egui's emoji font; the arrow and return
                     // symbols did not, and rendered as empty boxes.
-                    let mode_label = match self.settings.lock().unwrap().mode {
+                    let current_mode = self.settings.lock().unwrap().mode;
+                    let mode_label = match current_mode {
                         TranscribeMode::Input => "\u{1f4dd} Input Mode",
                         // No target language in the label: whether a
                         // translation appears depends on the model being
@@ -199,6 +200,15 @@ impl OverlayApp {
                         let mut s = self.settings.lock().unwrap();
                         s.mode = s.mode.next();
                     }
+                    // Always visible, not only while the scrollback is empty:
+                    // forgetting what a mode does happens mid-session, which
+                    // is exactly when an empty-state hint is gone.
+                    ui.label(
+                        egui::RichText::new(mode_hint(current_mode))
+                            .color(egui::Color32::from_gray(130))
+                            .italics()
+                            .size(13.0),
+                    );
 
                     if self.buffered > 0 {
                         ui.label(

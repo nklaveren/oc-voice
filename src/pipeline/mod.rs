@@ -235,12 +235,13 @@ fn advance(
     // M7.2: the original goes to the record and the overlay; the translation
     // is display-only and arrives async.
     //
-    // Not gated on the mode any more. Someone dictating in English wants what
-    // they said typed in English — and also wants to see it in Portuguese,
-    // which is the whole point when the reason for speaking English is to
-    // practise it. The installed model is en->pt, so English is the only
-    // source there is anything to do with.
-    if stream.translate || stream.lock.locked() == Some("en") {
+    // Gated on the mode, and only the mode. An earlier version translated
+    // whenever English was detected, so that speaking English to practise it
+    // showed both languages — which is useful while *following* someone and
+    // pure noise while *composing*. Dictation and Enter exist to produce one
+    // piece of text in one language; a second rendering underneath every line
+    // is something to read past on the way to what you are writing.
+    if stream.translate {
         crate::translate::request(ctx.translator, &trimmed);
     }
 
@@ -350,6 +351,15 @@ fn session_control(source: Source, trimmed: &str, ctx: &mut Ctx<'_>) -> bool {
         Some(commands::VoiceCommand::SessionStart) => start_session(source, ctx.recording, ctx.tx),
         Some(commands::VoiceCommand::SessionStop) => stop_session(ctx.recording, ctx.tx),
         Some(commands::VoiceCommand::SetMode(name)) => switch_mode(&name, ctx),
+        Some(commands::VoiceCommand::Help) => {
+            let Some(vocab) = config::active_vocab(ctx.config, ctx.settings) else {
+                return false;
+            };
+            for line in commands::help_lines(vocab) {
+                emit(ctx.tx, TranscriptEvent::notice(line));
+            }
+            true
+        }
         _ => false,
     }
 }

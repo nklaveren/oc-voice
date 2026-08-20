@@ -111,6 +111,11 @@ fn run_dispatch(runner: &Arc<dyn CommandRunner>, tx: &Sender<TranscriptEvent>, a
 
 /// Interpret one utterance as a WM command. Unrecognized speech is dropped —
 /// in Command mode nothing is ever typed.
+/// Returns whether the utterance was recognised as a window-manager command.
+///
+/// The answer matters now that Enter mode consults this grammar before
+/// buffering: an utterance it does not recognise has to fall through to
+/// dictation rather than vanish.
 pub fn dispatch_spoken(
     vocab: &LangVocab,
     config: &Config,
@@ -118,7 +123,7 @@ pub fn dispatch_spoken(
     runner: &Arc<dyn CommandRunner>,
     tx: &Sender<TranscriptEvent>,
     pending: &mut Option<PendingAction>,
-) {
+) -> bool {
     let threshold = config.threshold();
 
     // Whole-utterance commands first.
@@ -133,7 +138,7 @@ pub fn dispatch_spoken(
             tx,
             pending,
         );
-        return;
+        return true;
     }
 
     // Slotted templates. Slot options: direcao is closed (validated during
@@ -166,10 +171,11 @@ pub fn dispatch_spoken(
             tx,
             pending,
         );
-        return;
+        return true;
     }
 
     debug!(spoken, "no WM command recognized");
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -220,6 +226,10 @@ fn dispatch_args(
         "fullscreen" => vec!["dispatch".into(), "fullscreen".into()],
         "toggle_floating" => vec!["dispatch".into(), "togglefloating".into()],
         "kill_active" => vec!["dispatch".into(), "killactive".into()],
+        // Cycle within the current workspace. `cyclenext` wraps, so these are
+        // the two directions of one motion rather than two behaviours.
+        "next_window" => vec!["dispatch".into(), "cyclenext".into()],
+        "previous_window" => vec!["dispatch".into(), "cyclenext".into(), "prev".into()],
         "move_focus" => {
             let dir = resolve_direction(slot?, vocab, threshold)?;
             // hyprctl movefocus only takes l/r/u/d — "janela do centro" is

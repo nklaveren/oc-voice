@@ -67,6 +67,18 @@ fn probe_one(
     pool("newline", spoken, &vocab.newline, threshold);
     pool("confirm", spoken, &vocab.confirm, threshold);
     pool("deny", spoken, &vocab.deny, threshold);
+    pool("help", spoken, &vocab.help, threshold);
+    // Modes were missing from this listing, and the omission hid a real bug:
+    // "monitor direito" matched "modo ditado" and switched mode instead of
+    // moving focus. A probe that does not show every class `classify`
+    // consults lies by omission — the one it hides is the one you cannot see.
+    let modes: Vec<String> = vocab.modes.keys().cloned().collect();
+    pool(
+        "mode",
+        spoken,
+        &modes,
+        crate::commands::MODE_THRESHOLD.max(threshold),
+    );
     let wm: Vec<String> = vocab.wm_commands.keys().cloned().collect();
     pool("wm_command", spoken, &wm, threshold);
 
@@ -137,7 +149,29 @@ fn probe_one(
     // Both verdicts: the same utterance means different things per mode, and
     // showing only one is how "the template matched but it says Dictation"
     // becomes confusing.
-    match crate::commands::classify(spoken, vocab, threshold) {
+    // Enter mode consults the window-manager grammar before buffering, so
+    // reporting only `classify` here would say "Dictation" for an utterance
+    // that actually navigates. An instrument that does not match the thing it
+    // measures is the next bug rather than a way of finding one.
+    let verdict = crate::commands::classify(spoken, vocab, threshold);
+    let navigates = {
+        let (probe_tx, _probe_rx) = crossbeam_channel::unbounded();
+        let mut probe_pending = None;
+        let quiet = Arc::new(DryRunRunner::new());
+        let quiet_runner: Arc<dyn CommandRunner> = quiet;
+        crate::wm::dispatch::dispatch_spoken(
+            vocab,
+            config,
+            spoken,
+            &quiet_runner,
+            &probe_tx,
+            &mut probe_pending,
+        )
+    };
+    match verdict {
+        Some(crate::commands::VoiceCommand::Dictation) | None if navigates => {
+            println!("  => modo Enter:   navega (comando de janela, não vira texto)")
+        }
         Some(cmd) => println!("  => modo Enter:   {cmd:?}"),
         None => println!("  => modo Enter:   (nada)"),
     }

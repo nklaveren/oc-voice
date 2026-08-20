@@ -132,6 +132,22 @@ fn open_session_file(runner: &Arc<dyn CommandRunner>, path: &str) {
     }
 }
 
+/// What each mode is for, in a few words, shown beside the button.
+///
+/// Added because the person who built it forgot what Enter mode was for.
+/// Input and Enter look identical while idle — both listen, both are about
+/// your own speech — and the difference only shows up after you have already
+/// committed to one: Input types every utterance as it lands, Enter collects
+/// them so a thought can be assembled before anything is sent.
+fn mode_hint(mode: TranscribeMode) -> &'static str {
+    match mode {
+        TranscribeMode::Input => "digita cada fala na hora",
+        TranscribeMode::Enter => "junta as falas, e navega sem trocar de modo",
+        TranscribeMode::Command => "tudo é comando, nada vira texto",
+        TranscribeMode::Translate => "legenda o áudio do sistema, com tradução",
+    }
+}
+
 /// Colour is the whole distinction between your speech and the meeting's.
 /// A text label on every line would double the height of a subtitle overlay
 /// for information the reader already has from context.

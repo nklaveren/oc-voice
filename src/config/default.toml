@@ -48,8 +48,25 @@ cancel = ["cancela", "limpa", "descarta"]
 newline = ["nova linha", "pula linha"]
 session_start = ["grava", "gravar", "gravar sessão", "inicia sessão"]
 session_stop = ["encerra", "encerrar", "encerra sessão", "para de gravar"]
+help = ["ajuda", "comandos", "socorro"]
 confirm = ["confirma", "sim"]
 deny = ["não", "cancela"]
+# Palavras que cercam comandos na fala real. Saem antes da contagem de
+# palavras, e só estas — qualquer palavra desconhecida mantém a fala como
+# ditado, que é o que impede "vamos limpar depois" de virar um comando.
+fillers = ["ok", "tá", "ta", "então", "entao", "aí", "ai", "isso", "tudo", "agora", "beleza", "por favor"]
+
+# Rótulos da listagem de "ajuda". A chave é o nome neutro da ação.
+[pt.help_labels]
+send = "enviar"
+cancel = "cancelar"
+newline = "nova linha"
+session_start = "gravar"
+session_stop = "encerrar"
+help = "ajuda"
+modes = "modos"
+send_to = "enviar p/"
+templates = "janelas"
 
 [pt.numbers]
 um = 1
@@ -77,7 +94,9 @@ dez = 10
 
 [pt.directions]
 direita = "r"
+direito = "r"
 esquerda = "l"
+esquerdo = "l"
 cima = "u"
 baixo = "d"
 meio = "m"
@@ -88,6 +107,14 @@ centro = "m"
 "flutuante" = "toggle_floating"
 "fecha" = "kill_active"
 "fechar janela" = "kill_active"
+# Frases ditas na prática que não estavam na tabela — o vocabulário estava
+# incompleto, não o código. "trocar tela" alterna para a última janela.
+"trocar tela" = "next_window"
+"troca tela" = "next_window"
+"próxima janela" = "next_window"
+"proxima janela" = "next_window"
+"volta janela" = "previous_window"
+"janela anterior" = "previous_window"
 
 # A forma com slot fechado vem antes de "monitor {monitor}": em empate de
 # escore o primeiro template vence, e "monitor esquerda" deve ser direção,
@@ -161,8 +188,21 @@ cancel = ["cancel", "clear", "discard"]
 newline = ["new line"]
 session_start = ["record", "start recording", "start session"]
 session_stop = ["stop recording", "end session"]
+help = ["help", "commands"]
 confirm = ["confirm", "yes"]
 deny = ["no", "cancel"]
+fillers = ["ok", "okay", "please", "now", "that", "this", "everything", "all"]
+
+[en.help_labels]
+send = "send"
+cancel = "cancel"
+newline = "new line"
+session_start = "record"
+session_stop = "stop rec"
+help = "help"
+modes = "modes"
+send_to = "send to"
+templates = "windows"
 
 [en.numbers]
 one = 1
@@ -196,6 +236,8 @@ center = "m"
 "full screen" = "fullscreen"
 "floating" = "toggle_floating"
 "close window" = "kill_active"
+"next window" = "next_window"
+"previous window" = "previous_window"
 
 [[en.templates]]
 pattern = "{direcao} monitor"

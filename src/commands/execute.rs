@@ -112,6 +112,20 @@ pub fn route_final(
             let vocab = crate::config::active_vocab(config, settings);
             match vocab.and_then(|v| classify(trimmed, v, config.threshold())) {
                 Some(VoiceCommand::Dictation) | None => {
+                    // Navigation before buffering. Having to leave Enter mode
+                    // to move a window and come back is friction the
+                    // word-count gate already makes unnecessary: a command is
+                    // a handful of words, a dictated line is not, and the
+                    // grammar refuses anything that is not literally in it.
+                    // An unrecognised utterance falls through to dictation
+                    // exactly as before.
+                    if let Some(v) = vocab {
+                        if crate::wm::dispatch::dispatch_spoken(
+                            v, config, trimmed, runner, tx, pending,
+                        ) {
+                            return;
+                        }
+                    }
                     enter_buffer.push(trimmed.to_string());
                     emit(tx, TranscriptEvent::Buffered(enter_buffer.len()));
                 }
@@ -228,7 +242,10 @@ pub fn execute_command(
         // Session control and mode switching are handled ahead of routing,
         // in the pipeline, so they work from every mode rather than only the
         // one whose grammar happens to reach here.
-        VoiceCommand::SessionStart | VoiceCommand::SessionStop | VoiceCommand::SetMode(_) => {}
+        VoiceCommand::SessionStart
+        | VoiceCommand::SessionStop
+        | VoiceCommand::SetMode(_)
+        | VoiceCommand::Help => {}
         VoiceCommand::Dictation => {
             // handled by caller — pushes to enter_buffer
         }

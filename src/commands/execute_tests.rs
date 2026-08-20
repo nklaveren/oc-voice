@@ -200,3 +200,79 @@ fn deny_discards_the_pending_action() {
         "denied action must never type"
     );
 }
+
+#[test]
+fn enter_mode_navigates_without_leaving_enter_mode() {
+    // Reported live: "o modo enter e o modo comando ficar alternando não era
+    // a ideia, era conseguir ter tudo junto". Leaving a composed message to
+    // switch modes, moving a window, and switching back is friction the
+    // word-count gate already makes unnecessary — a command is a handful of
+    // words, a dictated line is not.
+    let config = crate::config::Config::embedded();
+    let settings = std::sync::Mutex::new(crate::AppSettings {
+        language: "pt".to_string(),
+        mode: crate::TranscribeMode::Enter,
+        detected_language: None,
+        session_request: None,
+    });
+    let fake = std::sync::Arc::new(crate::process::FakeRunner::new(b"[]".to_vec()));
+    let runner: std::sync::Arc<dyn crate::process::CommandRunner> = fake.clone();
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let mut buffer: Vec<String> = Vec::new();
+    let mut pending = None;
+
+    route_final(
+        crate::TranscribeMode::Enter,
+        "tela cheia",
+        &config,
+        &settings,
+        &mut buffer,
+        &mut pending,
+        &tx,
+        &runner,
+    );
+
+    assert!(
+        fake.calls()
+            .iter()
+            .any(|(p, a)| p == "hyprctl" && a.contains(&"fullscreen".to_string())),
+        "the command did not reach the window manager: {:?}",
+        fake.calls()
+    );
+    assert!(
+        buffer.is_empty(),
+        "a dispatched command must not also be buffered as text"
+    );
+}
+
+#[test]
+fn dictation_that_is_not_a_command_still_reaches_the_buffer() {
+    // The other half: consulting the window-manager grammar first must not
+    // swallow ordinary speech.
+    let config = crate::config::Config::embedded();
+    let settings = std::sync::Mutex::new(crate::AppSettings {
+        language: "pt".to_string(),
+        mode: crate::TranscribeMode::Enter,
+        detected_language: None,
+        session_request: None,
+    });
+    let fake = std::sync::Arc::new(crate::process::FakeRunner::new(b"[]".to_vec()));
+    let runner: std::sync::Arc<dyn crate::process::CommandRunner> = fake.clone();
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let mut buffer: Vec<String> = Vec::new();
+    let mut pending = None;
+
+    let spoken = "preciso revisar aquele documento antes da reunião";
+    route_final(
+        crate::TranscribeMode::Enter,
+        spoken,
+        &config,
+        &settings,
+        &mut buffer,
+        &mut pending,
+        &tx,
+        &runner,
+    );
+
+    assert_eq!(buffer, vec![spoken.to_string()]);
+}
