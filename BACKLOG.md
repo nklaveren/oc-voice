@@ -388,7 +388,7 @@ Não é um mecanismo próprio: é marcar o comando como destrutivo para a polít
 
 O problema de projeto que realmente sobra. Não é o `hyprctl` — é decidir se "nova linha" é um comando ou parte da frase que a pessoa está ditando.
 
-### M4.1 — Palavra-prefixo
+### M4.1 — Palavra-prefixo ✅
 
 A heurística atual (≤5 palavras) é frágil nas duas pontas: bloqueia comandos legítimos mais longos e dispara em ditado curto.
 
@@ -400,6 +400,8 @@ Trocar por um prefixo explícito, vindo da chave `prefix` do idioma ativo (M1.3)
 O prefixo não substitui o filtro de contagem de palavras de M1.1 — ele age antes. Reconhecido o prefixo, o **resto** da elocução é que vai para `match_exact` ou `match_template`, e o filtro se aplica a esse resto. Os dois se compõem: o prefixo elimina o falso positivo em ditado, o filtro elimina o falso positivo dentro de fala já marcada como comando.
 
 **Aceite:** com o prefixo ativo, ditar qualquer palavra de comando sem o prefixo produz texto literal. Testes cobrindo as duas direções.
+
+**Decisão de implementação:** o prefixo é controlado por `require_prefix` (default `false`) na seção do idioma. Ligado por config, não por presença de palavras na lista — o default com prefixo obrigatório quebraria o aceite de M1.3 ("rodar sem config funciona igual a hoje", onde "câmbio" sozinho envia). Com `require_prefix = false`, o prefixo é aceito mas não exigido.
 
 ### M4.2 — Modo `Command`
 

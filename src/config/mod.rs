@@ -26,6 +26,9 @@ pub struct Matching {
 #[serde(default)]
 pub struct LangVocab {
     pub prefix: Vec<String>,
+    /// When true, only utterances that start with a prefix word are treated
+    /// as commands; everything else is literal dictation (M4.1).
+    pub require_prefix: bool,
     pub send: Vec<String>,
     pub cancel: Vec<String>,
     pub newline: Vec<String>,

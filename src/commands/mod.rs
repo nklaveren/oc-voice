@@ -29,12 +29,40 @@ pub enum VoiceCommand {
 /// Similarity matching against the closed command vocabulary — see M1.1/M1.2
 /// in BACKLOG.md. Utterances with no candidate of the same word count are
 /// refused before scoring and fall through to dictation.
+/// Strip a leading prefix word ("computador, …") if one is spoken. Returns
+/// the remainder and whether a prefix was found. The prefix is matched with
+/// the same similarity pipeline as everything else — ASR mangles it too.
+fn strip_prefix<'a>(
+    text: &'a str,
+    vocab: &crate::config::LangVocab,
+    threshold: f64,
+) -> (&'a str, bool) {
+    let Some(first_word) = text.split_whitespace().next() else {
+        return (text, false);
+    };
+    let prefixes: Vec<&str> = vocab.prefix.iter().map(String::as_str).collect();
+    if matcher::match_exact(first_word, &prefixes, threshold).is_some() {
+        let rest = text[first_word.len() + text.find(first_word).unwrap_or(0)..].trim_start();
+        return (rest.trim_start_matches([',', ' ']), true);
+    }
+    (text, false)
+}
+
 pub fn classify(
     text: &str,
     vocab: &crate::config::LangVocab,
     threshold: f64,
 ) -> Option<VoiceCommand> {
     info!(text = %text, "similarity classification");
+
+    // M4.1: the prefix acts before the grammar. With require_prefix on, an
+    // unprefixed utterance is literal dictation no matter what it says; the
+    // prefix, once recognized, is stripped and the REST goes to the matcher —
+    // the word-count gate then applies to that rest, so the two compose.
+    let (text, had_prefix) = strip_prefix(text, vocab, threshold);
+    if vocab.require_prefix && !had_prefix {
+        return Some(VoiceCommand::Dictation);
+    }
 
     for (words, command) in [
         (&vocab.send, VoiceCommand::Send),
@@ -184,6 +212,38 @@ mod tests {
         for spoken in ["pronto falei", "sao paulo", "bom dia"] {
             assert_eq!(classify(spoken), Some(VoiceCommand::Dictation), "{spoken}");
         }
+    }
+
+    #[test]
+    fn prefix_marks_commands_when_required() {
+        // M4.1, both directions: with require_prefix on, a bare command word
+        // is literal dictation, and the prefixed form is a command.
+        let config = crate::config::Config::embedded();
+        let mut vocab = config.vocab("pt").unwrap().clone();
+        vocab.require_prefix = true;
+        let t = config.threshold();
+        assert_eq!(
+            super::classify("câmbio", &vocab, t),
+            Some(VoiceCommand::Dictation),
+            "bare command word must dictate literally"
+        );
+        assert_eq!(
+            super::classify("computador, câmbio", &vocab, t),
+            Some(VoiceCommand::Send)
+        );
+        // ASR error on the prefix itself still counts.
+        assert_eq!(
+            super::classify("comptador câmbio", &vocab, t),
+            Some(VoiceCommand::Send)
+        );
+    }
+
+    #[test]
+    fn prefix_is_optional_by_default() {
+        // Default config keeps today's behaviour: bare commands work, and the
+        // prefixed form works too.
+        assert_eq!(classify("câmbio"), Some(VoiceCommand::Send));
+        assert_eq!(classify("computador câmbio"), Some(VoiceCommand::Send));
     }
 
     #[test]
