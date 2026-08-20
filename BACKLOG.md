@@ -564,6 +564,35 @@ Por segmento: áudio → vetor de ~192 dimensões → similaridade de cosseno co
 
 **Aceite:** gravação com três vozes distintas, sem sobreposição, produz três rótulos estáveis ao longo da sessão. O limiar de cosseno é medido e registrado aqui, como M5.4 fez com latência e M1.1 com o matcher. Segmento abaixo do mínimo de duração sai como indeterminado, e um teste garante isso.
 
+### M7.6 — Nomes do cliente de reunião, por OCR
+
+M7.4 separa vozes mas nunca sabe o nome de ninguém. O cliente de reunião sabe — e não por ter um algoritmo melhor: ele **recebe um stream separado por participante** e mistura só na hora de tocar. O que chega no monitor do sink é a soma. Nenhuma matemática de embedding recupera o que foi somado.
+
+Então a jogada não é calcular melhor, é **ler a resposta dele**. Só o nome: a legenda do whisper é muito melhor que a do Teams, medida lado a lado numa reunião real. O cliente entra para a única coisa que ele sabe e nós não podemos inferir.
+
+**Ferramenta de diagnóstico primeiro (✅ `d46d65e`).** `oc-voice ocr <alvo>` despeja o que o OCR lê de uma janela, com a geometria de cada linha; `oc-voice ocr watch <x,y wxh>` amostra uma faixa e imprime só quando o texto muda. Existe porque ninguém sabe onde o cliente põe o nome do falante ativo até olhar, e chutar a região é como se constrói uma ferramenta que funciona num layout e lê o retângulo errado em todos os outros.
+
+Medido na janela real: **235 ms por ciclo** numa faixa pequena (`grim` + `tesseract --psm 7`), nomes a 85–92% de confiança. 2,5 s na janela inteira — inviável para amostrar, ótimo para descobrir a região uma vez.
+
+`grim` e `tesseract` são chamados como processo, não linkados: a última biblioteca C++ adicionada a este binário (CTranslate2) colidiu com os símbolos de protobuf do onnxruntime, e leptonica seria outra chance do mesmo bug sem benefício.
+
+**O truque que torna OCR confiável.** Não nomear cada fala. Seletor de tela quebra, confiança oscila, tema muda. Mas:
+
+- a **diarização separa** — local, offline, sempre funciona
+- o **OCR nomeia** — amostrado a 4 Hz, sem precisar acertar sempre
+
+Se 18 de 20 amostras disserem o mesmo nome enquanto um cluster fala, o cluster é dessa pessoa. Uma leitura ruim não importa porque o cluster é estável e só precisa ser batizado uma vez. **É o mesmo padrão do `LanguageLock`** — sinal instável vira decisão estável por acúmulo — e do matcher: texto de OCR é ruidoso do mesmo jeito que ASR, e casar contra a lista de participantes por Jaro-Winkler é exatamente o problema que `match_exact` já resolve.
+
+**Limites honestos, e precisam estar no README:**
+
+- **A região vai quebrar.** Layout muda, o cliente atualiza. Precisa degradar para `Falante A/B` e dizer no log que degradou, nunca parar nem inventar.
+- **Convidado não identificado não tem nome para ler.**
+- **Fala sobreposta quebra os dois lados** — a diarização e o indicador de falante ativo.
+- **Atribuição errada numa ata é o mesmo dano da tradução errada (M7.2):** põe na boca de alguém o que a pessoa não disse.
+- Ata com nomes é artefato diferente de anotação pessoal. Gravar reunião com atribuição nominal tem implicação de consentimento que varia por jurisdição.
+
+**Aceite:** com um recap tocando, `ocr watch` na faixa do nome produz uma sequência de nomes que muda quando o falante muda. O limiar de confiança abaixo do qual a leitura é descartada é **medido contra o recap, não chutado** — como M5.4 fez com latência e M1.1 com o matcher.
+
 ### M7.3 — Separar fonte de tarefa
 
 `TranscribeMode` tem quatro valores que codificam combinações de duas dimensões, e por isso "gravar a reunião" e "traduzir a reunião" não podem coexistir. Trocar por dois eixos:

@@ -36,7 +36,7 @@ const TITLE_THRESHOLD: f64 = 0.90;
 /// Tokens shorter than this score high against everything and mean nothing.
 const MIN_TOKEN_LEN: usize = 3;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize)]
 pub struct WindowInfo {
     #[serde(default)]
     pub class: String,
@@ -44,6 +44,13 @@ pub struct WindowInfo {
     pub title: String,
     #[serde(default)]
     pub address: String,
+    /// Top-left in global layout coordinates, and size — both logical pixels,
+    /// which is what `grim -g` expects. Defaulted so the JSON fixtures in the
+    /// resolver's tests, which carry no geometry, still parse.
+    #[serde(default)]
+    pub at: [i64; 2],
+    #[serde(default)]
+    pub size: [i64; 2],
 }
 
 #[derive(Debug, Clone, PartialEq)]

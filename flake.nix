@@ -57,6 +57,13 @@
             # misc
             openssl
             wtype
+            # M7.6: reading the active speaker's name off the meeting window.
+            # grim grabs a region on wlroots; tesseract reads it. Both are
+            # shelled out to rather than linked: the last C++ library added to
+            # this binary (CTranslate2) collided with onnxruntime's protobuf
+            # symbols, and leptonica would be another chance at the same bug.
+            grim
+            (tesseract.override { enableLanguages = [ "eng" "por" "osd" ]; })
           ];
 
           # whisper-rs needs these at build + runtime

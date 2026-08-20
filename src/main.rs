@@ -18,6 +18,8 @@ mod cli;
 mod commands;
 mod config;
 mod input;
+mod ocr;
+mod ocrprobe;
 mod pipeline;
 mod probe;
 mod process;
@@ -207,7 +209,7 @@ fn main() -> Result<()> {
 
     let model_path = std::env::args().nth(1).ok_or_else(|| {
         anyhow!(
-            "usage: oc-voice <model.bin> | probe [lang] | devices | levels | asr-test <model.bin>"
+            "usage: oc-voice <model.bin> | probe [lang] | devices | levels | asr-test <model.bin> | ocr <alvo>"
         )
     })?;
 

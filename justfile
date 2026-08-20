@@ -62,6 +62,14 @@ probe:
 probe-en:
     cargo run --release -- probe en
 
+# What OCR reads off a window, with the geometry to grab each line on its own
+ocr alvo="teams":
+    cargo run --release -- ocr {{ alvo }}
+
+# Sample one region until Ctrl+C, printing only when the text changes
+ocr-watch region:
+    cargo run --release -- ocr watch "{{ region }}"
+
 # Fetch the model if needed, then run (CUDA)
 run: fetch-model
     cargo run --release -- {{ models_dir }}/{{ model_name }}
