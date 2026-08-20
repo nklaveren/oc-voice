@@ -11,8 +11,10 @@
 use anyhow::{anyhow, Context, Result};
 #[deny(clippy::unwrap_used)]
 mod asr;
+mod asrtest;
 #[deny(clippy::unwrap_used)]
 mod audio;
+mod cli;
 mod commands;
 mod config;
 mod input;
@@ -122,35 +124,32 @@ pub fn lock_settings(settings: &Mutex<AppSettings>) -> std::sync::MutexGuard<'_,
 }
 
 fn main() -> Result<()> {
+    let subcommand = std::env::args()
+        .nth(1)
+        .is_some_and(|a| cli::is_subcommand(&a));
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "oc_voice=info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                // Diagnostic subcommands are read by a person, not tailed as
+                // logs: info lines would break the meter and the WER report.
+                if subcommand {
+                    "oc_voice=warn".into()
+                } else {
+                    "oc_voice=info".into()
+                }
+            }),
         )
         .init();
 
-    let model_path = std::env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow!("usage: oc-voice <model.bin> | probe [lang] | devices | levels"))?;
+    let model_path = std::env::args().nth(1).ok_or_else(|| {
+        anyhow!(
+            "usage: oc-voice <model.bin> | probe [lang] | devices | levels | asr-test <model.bin>"
+        )
+    })?;
 
-    // Diagnostic REPL: no whisper, no audio, nothing dispatched.
-    if model_path == "probe" {
-        probe::run();
+    // Diagnostic subcommands short-circuit before any model is loaded.
+    if cli::run_subcommand(&model_path)? {
         return Ok(());
-    }
-
-    // Which microphone would capture use?
-    if model_path == "devices" {
-        audio::capture::list_devices();
-        return Ok(());
-    }
-
-    // Live level meter on the exact signal whisper receives.
-    if model_path == "levels" {
-        let running = Arc::new(AtomicBool::new(true));
-        let r = running.clone();
-        ctrlc::set_handler(move || r.store(false, Ordering::SeqCst)).ok();
-        return audio::capture::run_level_meter(running);
     }
 
     let running = Arc::new(AtomicBool::new(true));

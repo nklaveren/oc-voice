@@ -25,6 +25,10 @@ fetch-model:
 build:
     cargo build --release
 
+# Read the reference passage aloud; reports word error rate per block
+asr-test: fetch-model
+    cargo run --release -- asr-test {{ models_dir }}/{{ model_name }}
+
 # Live meter of the signal whisper receives — speak and watch the level
 levels:
     cargo run --release -- levels

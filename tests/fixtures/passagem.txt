@@ -1,0 +1,70 @@
+# Passagem de referência para medir o ASR.
+#
+# Leia em voz normal, no ritmo em que você realmente ditaria — não devagar
+# nem articulando demais, senão o número mede uma situação que não existe.
+# Linhas iniciadas por # são comentário; linhas em branco separam blocos e
+# são pontos naturais para respirar.
+#
+# Cada bloco isola uma fonte de erro diferente, então a taxa por bloco diz
+# ONDE está o problema, não só que existe um.
+#
+# Uso:  just asr-test
+
+# --- bloco 1: vocabulário de comando ---
+# Estas são as palavras que o matcher precisa reconhecer. Erro aqui é fatal:
+# um comando não reconhecido é ditado literal na sua tela.
+câmbio
+envia
+manda
+pronto
+cancela
+limpa
+descarta
+nova linha
+confirma
+não
+
+# --- bloco 2: comandos de janela ---
+# Frase inteira, como você falaria de verdade.
+monitor da direita
+monitor do meio
+janela da esquerda
+área de trabalho quatro
+leva pra três
+foca o navegador
+envia para o terminal
+tela cheia
+fecha
+
+# --- bloco 3: ditado natural em português ---
+# Fonética ampla: nasais, ditongos, erre forte, lh, nh, ç, sons de s e z.
+A manhã de terça-feira começou com uma reunião difícil sobre o orçamento.
+O caminhão que trouxe as caixas ainda não passou pela portaria do galpão.
+Precisamos alinhar a expectativa antes de apresentar a proposta ao cliente.
+Cinquenta e três pessoas confirmaram presença, mas apenas dezoito apareceram.
+Uma exceção interessante apareceu quando o serviço reiniciou sozinho.
+
+# --- bloco 4: português com termo técnico em inglês ---
+# O caso real: ditar para um assistente de código, misturando os dois idiomas.
+Abre o arquivo main ponto rust e procura a função que chama o matcher.
+O teste de integração falhou porque o mock não retornou o endereço certo.
+Faz um commit com a mensagem corrigindo o parser de configuração.
+Roda o build em release e me mostra o output do clipe.
+O deploy quebrou no pipeline por causa de uma variável de ambiente faltando.
+Adiciona um índice na coluna de e-mail para acelerar a consulta.
+
+# --- bloco 5: números e identificadores ---
+# Whisper erra número com frequência, e comando de workspace depende disso.
+um dois três quatro cinco seis sete oito nove dez
+A porta três mil e cem está ocupada pelo servidor de desenvolvimento.
+O erro quatrocentos e quatro apareceu em vinte e sete por cento das chamadas.
+Versão dois ponto quatorze ponto zero.
+
+# --- bloco 6: pares que confundem ---
+# Palavras curtas e parecidas, onde a similaridade tem menos folga.
+concerto conserto
+sessão seção cessão
+mas mais
+esta está
+por que porque
+acento assento

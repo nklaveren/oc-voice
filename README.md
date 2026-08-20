@@ -132,6 +132,28 @@ realtime and cannot drive live partials. If you have no NVIDIA GPU, swap
 `model_name` in the `justfile` for `ggml-small` or `ggml-base` — smaller
 models trade accuracy for a realtime-capable CPU path.
 
+## Diagnostics
+
+Four subcommands answer "why is it doing that?" without starting the pipeline:
+
+```bash
+just devices    # which microphone capture would use, and the alternatives
+just levels     # live meter of the signal whisper receives — speak and watch
+just probe      # type utterances, see the matcher's decision chain with scores
+just asr-test   # read the reference passage aloud, get word error rate per block
+```
+
+`just levels` is the first thing to run when transcription is poor: speech
+should sit around **-25 to -15 dBFS RMS**. A quiet room reads near -60. If
+speaking barely moves the meter, no model or threshold change will help —
+raise the source volume (`wpctl set-volume <id> 1.5`) or pick another mic.
+
+`just asr-test` reads `tests/fixtures/passagem.txt`, six blocks that isolate
+different failure sources — command vocabulary, window commands, natural
+Portuguese, Portuguese with English technical terms, numbers, and confusable
+pairs. Per-block word error rate says *where* the ASR fails. Below 10% is
+usable; above 25% the problem is signal or model, not tuning.
+
 ## What does NOT work
 
 - Compositors other than Hyprland (window routing and dispatch are hyprctl)
