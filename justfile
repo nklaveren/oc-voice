@@ -66,7 +66,9 @@ vocab:
     # Test code legitimately contains vocabulary — it is what the matcher tests
     # assert against. Strip #[cfg(test)] blocks before scanning.
     scan=$(mktemp -d)
-    for f in $(find src -name '*.rs'); do
+    # *_tests.rs files are whole test modules (declared with #[path] from a
+    # #[cfg(test)] mod) — same exemption as inline test blocks.
+    for f in $(find src -name '*.rs' ! -name '*_tests.rs'); do
         awk -v path="$f" '
             /^#\[cfg\(test\)\]/ { skip=1 }
             skip && /^}/ { skip=0; next }

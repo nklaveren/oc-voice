@@ -39,6 +39,49 @@ direita = "r"
 esquerda = "l"
 cima = "u"
 baixo = "d"
+meio = "m"
+
+[pt.wm_commands]
+"tela cheia" = "fullscreen"
+"flutuante" = "toggle_floating"
+"fecha" = "kill_active"
+"fechar janela" = "kill_active"
+
+[[pt.templates]]
+pattern = "monitor da {direcao}"
+action = "focus_monitor"
+
+[[pt.templates]]
+pattern = "monitor do {direcao}"
+action = "focus_monitor"
+
+[[pt.templates]]
+pattern = "monitor {monitor}"
+action = "focus_monitor_name"
+
+[[pt.templates]]
+pattern = "janela da {direcao}"
+action = "move_focus"
+
+[[pt.templates]]
+pattern = "janela de {direcao}"
+action = "move_focus"
+
+[[pt.templates]]
+pattern = "área de trabalho {numero}"
+action = "workspace"
+
+[[pt.templates]]
+pattern = "leva pra {numero}"
+action = "move_to_workspace"
+
+[[pt.templates]]
+pattern = "foca o {alvo}"
+action = "focus_window"
+
+[[pt.templates]]
+pattern = "foca no {alvo}"
+action = "focus_window"
 
 [pt.targets]
 navegador = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]
@@ -72,6 +115,36 @@ right = "r"
 left = "l"
 up = "u"
 down = "d"
+middle = "m"
+
+[en.wm_commands]
+"full screen" = "fullscreen"
+"floating" = "toggle_floating"
+"close window" = "kill_active"
+
+[[en.templates]]
+pattern = "{direcao} monitor"
+action = "focus_monitor"
+
+[[en.templates]]
+pattern = "monitor {monitor}"
+action = "focus_monitor_name"
+
+[[en.templates]]
+pattern = "{direcao} window"
+action = "move_focus"
+
+[[en.templates]]
+pattern = "workspace {numero}"
+action = "workspace"
+
+[[en.templates]]
+pattern = "move to {numero}"
+action = "move_to_workspace"
+
+[[en.templates]]
+pattern = "focus {alvo}"
+action = "focus_window"
 
 [en.targets]
 browser = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]

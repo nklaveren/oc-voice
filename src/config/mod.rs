@@ -26,6 +26,14 @@ pub struct Matching {
     pub destructive: Option<Vec<String>>,
 }
 
+/// A spoken WM pattern with one slot, e.g. `"monitor da {direcao}"`, mapped
+/// to a language-neutral action name (M3.1).
+#[derive(Debug, Clone, Deserialize)]
+pub struct TemplateDef {
+    pub pattern: String,
+    pub action: String,
+}
+
 /// One language's spoken vocabulary. Empty lists are legal: a user can
 /// disable a command class by defining it as `[]`.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -47,6 +55,10 @@ pub struct LangVocab {
     pub targets: HashMap<String, Vec<String>>,
     /// User-defined monitor aliases, e.g. `principal = "DP-1"` (M3.1).
     pub monitors: HashMap<String, String>,
+    /// Whole-utterance WM commands: spoken words → action name (M3.1).
+    pub wm_commands: HashMap<String, String>,
+    /// Slotted WM patterns (M3.1).
+    pub templates: Vec<TemplateDef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

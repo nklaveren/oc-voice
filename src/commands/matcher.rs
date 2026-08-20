@@ -126,15 +126,22 @@ pub(crate) fn match_template(
                         matched = false;
                         break;
                     };
-                    let refs: Vec<&str> = options.iter().map(String::as_str).collect();
-                    match match_exact(spoken_word, &refs, threshold) {
-                        Some((value, s)) => {
-                            slots.insert(slot.to_string(), value.to_string());
-                            s
-                        }
-                        None => {
-                            matched = false;
-                            break;
+                    if options.is_empty() {
+                        // Wildcard slot: capture the spoken word as-is; the
+                        // dispatcher resolves and validates it (M3.1).
+                        slots.insert(slot.to_string(), spoken_word.clone());
+                        1.0
+                    } else {
+                        let refs: Vec<&str> = options.iter().map(String::as_str).collect();
+                        match match_exact(spoken_word, &refs, threshold) {
+                            Some((value, s)) => {
+                                slots.insert(slot.to_string(), value.to_string());
+                                s
+                            }
+                            None => {
+                                matched = false;
+                                break;
+                            }
                         }
                     }
                 }

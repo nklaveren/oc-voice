@@ -336,7 +336,7 @@ Este item cobre só a **exibição**. Quando pedir confirmação é decidido pel
 
 O objetivo do projeto. É a parte mais fácil: gramática fechada, estado enumerável via `hyprctl`, feedback visual instantâneo, ações reversíveis.
 
-### M3.1 — Módulo de dispatch
+### M3.1 — Módulo de dispatch ✅
 
 `wm/dispatch.rs`, envolvendo `hyprctl dispatch`:
 
@@ -366,7 +366,7 @@ A posição é derivada, não configurada: mudou o arranjo físico, "o da direit
 
 **Aceite:** cada linha da tabela de dispatch tem um teste que verifica o `hyprctl` montado, com o `CommandRunner` de teste de M0.2. Nenhum nome de conector, marca ou modelo aparece no código-fonte. Fixture com três monitores em posições trocadas resolve "o da direita" para o de maior `x`.
 
-### M3.2 — Números por extenso
+### M3.2 — Números por extenso ✅
 
 Whisper em português emite "quatro", não "4". Sem isso, nenhum comando de workspace funciona.
 
@@ -374,7 +374,7 @@ Mapa palavra→dígito de 1 a 10, na tabela `numbers` da seção de idioma de M1
 
 **Aceite:** "área de trabalho quatro" e "área de trabalho 4" produzem o mesmo dispatch. Testes para 1–10 em `pt` e `en`.
 
-### M3.3 — Classificar `killactive` como destrutivo
+### M3.3 — Classificar `killactive` como destrutivo ✅
 
 Fechar janela é a única ação da lista que destrói trabalho e não tem desfazer. Um falso positivo do ASR custa caro.
 
