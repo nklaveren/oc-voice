@@ -47,37 +47,22 @@ pub fn classify(
         }
     }
 
-    // The send-to path keeps exact prefix matching and the alias table until
-    // M2.1 replaces both with the live-window matcher.
+    // Send-to: a spoken prefix from the vocabulary followed by the target
+    // name. The target stays as spoken — resolution against live windows
+    // happens at execution time (M2.1), when the window list is current.
     let lower = fold_diacritics(&text.to_lowercase());
     let normalized = lower
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    let text_lower = normalized.as_str();
-
-    let send_to_prefixes = [
-        "enviar para ",
-        "envia para ",
-        "enviar pelo ",
-        "envia pelo ",
-        "enviar via ",
-        "envia via ",
-        "enviar pro ",
-        "envia pro ",
-        "manda para ",
-        "manda pelo ",
-        "manda via ",
-        "manda pro ",
-    ];
-    for prefix in &send_to_prefixes {
-        if let Some(pos) = text_lower.find(prefix) {
-            let target = text_lower[pos + prefix.len()..].trim();
+    for prefix in &vocab.send_to {
+        let prefix_norm = fold_diacritics(&prefix.to_lowercase());
+        if let Some(pos) = normalized.find(&format!("{prefix_norm} ")) {
+            let target = normalized[pos + prefix_norm.len()..].trim();
             if !target.is_empty() {
-                let resolved = resolve_target_alias(target);
                 return Some(VoiceCommand::SendTo {
-                    target: resolved.to_string(),
+                    target: target.to_string(),
                 });
             }
         }
@@ -104,21 +89,9 @@ pub(crate) fn fold_diacritics(s: &str) -> String {
         .collect()
 }
 
-fn resolve_target_alias(target: &str) -> &str {
-    match target {
-        "navegador" | "firefox" | "browser" => "firefox",
-        "chrome" | "google chrome" | "chromium" => "chromium",
-        "opencode" | "open code" | "oc" => "oc-opencode",
-        "terminal" | "term" => "Alacritty",
-        "editor" | "vscode" | "code" | "vs code" => "code",
-        "discord" | "chat" => "discord",
-        "telegram" => "telegram",
-        "whatsapp" => "whatsapp-nativefier",
-        _ => target,
-    }
-}
-
 pub fn execute_command(
+    vocab: &crate::config::LangVocab,
+    threshold: f64,
     cmd: &VoiceCommand,
     enter_buffer: &mut Vec<String>,
     tx: &Sender<TranscriptEvent>,
@@ -156,7 +129,7 @@ pub fn execute_command(
             let clean = inject_text.trim();
             if !clean.is_empty() {
                 emit(tx, TranscriptEvent::SentTo(display_text, target.clone()));
-                focus_window_and_type(runner, target, clean);
+                focus_window_and_type(runner, &vocab.targets, threshold, target, clean);
             }
         }
         VoiceCommand::Dictation => {
@@ -191,8 +164,10 @@ mod tests {
         assert_eq!(classify("nova linha"), Some(VoiceCommand::Newline));
         assert_eq!(
             classify("envia para navegador"),
+            // M2.1: the target stays as spoken; resolution against live
+            // windows happens at execution time, not at classify time.
             Some(VoiceCommand::SendTo {
-                target: "firefox".to_string()
+                target: "navegador".to_string()
             })
         );
     }

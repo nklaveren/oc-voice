@@ -4,71 +4,32 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
 
-pub fn focus_window_and_type(runner: &Arc<dyn CommandRunner>, target: &str, text: &str) {
-    let clients_output = match runner.output("hyprctl", &["clients", "-j"]) {
-        Ok(o) => o,
-        Err(_) => {
-            type_text(&**runner, text);
-            type_key(&**runner, "Return");
-            return;
-        }
-    };
+pub fn focus_window_and_type(
+    runner: &Arc<dyn CommandRunner>,
+    categories: &std::collections::HashMap<String, Vec<String>>,
+    threshold: f64,
+    target: &str,
+    text: &str,
+) {
+    let windows = crate::wm::target::live_windows(runner);
+    let resolved = crate::wm::target::resolve(target, categories, &windows, threshold);
 
-    let stdout = String::from_utf8_lossy(&clients_output.stdout);
-    let json: serde_json::Value = match serde_json::from_str(&stdout) {
-        Ok(v) => v,
-        Err(_) => {
-            type_text(&**runner, text);
-            type_key(&**runner, "Return");
-            return;
-        }
-    };
-
-    let clients = match json.as_array() {
-        Some(a) => a,
-        None => {
-            type_text(&**runner, text);
-            type_key(&**runner, "Return");
-            return;
-        }
-    };
-
-    let mut matched = None;
-    for client in clients.iter().rev() {
-        let class = client
-            .get("class")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        let title = client
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_lowercase();
-        let target_lower = target.to_lowercase();
-        if class.contains(&target_lower)
-            || title.contains(&target_lower)
-            || target_lower.contains(&class)
-        {
-            matched = Some(client.clone());
-            break;
-        }
-    }
-
-    if let Some(client) = matched {
-        let address = client.get("address").and_then(|v| v.as_str()).unwrap_or("");
-        if !address.is_empty() {
+    match resolved {
+        Some(t) if !t.address.is_empty() => {
             let _ = runner.output(
                 "hyprctl",
-                &["dispatch", "focuswindow", &format!("address:{address}")],
+                &["dispatch", "focuswindow", &format!("address:{}", t.address)],
             );
             std::thread::sleep(Duration::from_millis(100));
+            info!(target = %target, class = %t.class, score = t.score, "sent text to target window");
+        }
+        _ => {
+            debug!(target = %target, "no window matched; typing into focused window");
         }
     }
 
     type_text(&**runner, text);
     type_key(&**runner, "Return");
-    info!(target = %target, "sent text to target window");
 }
 
 /// Best-effort: detect Hyprland and auto-float+pin the oc-voice window.
@@ -155,7 +116,8 @@ mod tests {
             br#"[{"class":"code","title":"main.rs","address":"0x123"}]"#.to_vec(),
         ));
         let runner: Arc<dyn CommandRunner> = fake.clone();
-        focus_window_and_type(&runner, "code", "hello");
+        let categories = std::collections::HashMap::new();
+        focus_window_and_type(&runner, &categories, 0.82, "code", "hello");
         let calls = fake.calls();
         assert!(calls
             .iter()

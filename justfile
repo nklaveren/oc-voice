@@ -29,7 +29,7 @@ run: fetch-model
 run-cpu: fetch-model
     cargo run --release --no-default-features --features cpu -- {{ models_dir }}/{{ model_name }}
 
-check: limits refs
+check: limits refs vocab
     cargo check
     cargo clippy --all-targets -- -D warnings
     cargo fmt --check
@@ -55,10 +55,9 @@ limits:
     echo "limits ok: no source file over {{ max_file_lines }} lines"
 
 # Fail on spoken vocabulary or known app names in src/ string literals.
-# Red until M1.3/M2.1 move the vocabulary to commands.toml, so it is NOT part
-# of `just check` yet — it joins check as part of M2.1's acceptance, when it
-# actually goes green. See M0.4 in BACKLOG.md. #[cfg(test)] blocks are skipped:
-# matcher tests must contain the words they match against.
+# Green since M2.1 moved the vocabulary to commands.toml, and part of
+# `just check` from then on. #[cfg(test)] blocks are skipped: matcher tests
+# must contain the words they match against.
 vocab:
     #!/usr/bin/env bash
     set -uo pipefail

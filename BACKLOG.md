@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:32`), a tabela de aliases `resolve_target_alias` (`src/commands/mod.rs:107`) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:97`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:32`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:97`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -151,7 +151,7 @@ A capacidade de **recusar** é o requisito central, não a de acertar. Um autoco
 
 Pipeline, nesta ordem:
 
-1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:92`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
+1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:77`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
 2. **Filtrar por contagem de palavras** — só entram na comparação candidatos com o mesmo número de palavras da fala. Este passo é o que separa comando de ditado, ver medição abaixo.
 3. **Pontuar** com Jaro-Winkler (`strsim`), limiar default 0.82.
 
@@ -243,9 +243,9 @@ As duas dicas de texto do overlay (`src/ui/overlay.rs`) citam "envia" e "cambio"
 
 ## M2 — Alvos dinâmicos
 
-### M2.1 — Matar a tabela de aliases
+### M2.1 — Matar a tabela de aliases ✅
 
-`resolve_target_alias` ([`src/commands/mod.rs:107`](src/commands/mod.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
+`resolve_target_alias` (removida por este item) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
 
 Medido nas janelas abertas nesta máquina, **5 dos 7 aliases não encontram nada**:
 
@@ -318,7 +318,7 @@ O limiar mais duro em título é de graça: alvo legítimo casa por token exato 
 
 ### M2.2 — Corrigir o match vazio em `focus_window_and_type`
 
-Em [`src/wm/hyprland.rs:51`](src/wm/hyprland.rs) a condição `target_lower.contains(&class)` é verdadeira sempre que `class` é string vazia, porque `contains("")` é sempre `true`. Uma janela sem classe captura qualquer alvo falado.
+Na antiga `focus_window_and_type` a condição `target_lower.contains(&class)` era verdadeira sempre que `class` é string vazia, porque `contains("")` é sempre `true`. Uma janela sem classe captura qualquer alvo falado.
 
 **Aceite:** candidatos com `class` e `title` vazios são descartados antes de comparar. Teste com fixture contendo uma janela de classe vazia.
 

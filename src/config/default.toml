@@ -12,6 +12,7 @@ threshold = 0.82
 
 [pt]
 prefix = ["computador"]
+send_to = ["enviar para", "envia para", "enviar pelo", "envia pelo", "enviar via", "envia via", "enviar pro", "envia pro", "manda para", "manda pelo", "manda via", "manda pro"]
 send = ["câmbio", "envia", "manda", "pronto"]
 cancel = ["cancela", "limpa", "descarta"]
 newline = ["nova linha", "pula linha"]
@@ -47,6 +48,7 @@ chat = ["discord", "telegram", "slack", "teams", "element"]
 
 [en]
 prefix = ["computer"]
+send_to = ["send to", "send via"]
 send = ["send", "over", "done"]
 cancel = ["cancel", "clear", "discard"]
 newline = ["new line"]

@@ -29,6 +29,8 @@ pub struct LangVocab {
     pub send: Vec<String>,
     pub cancel: Vec<String>,
     pub newline: Vec<String>,
+    /// Spoken prefixes that carry a window target: "envia para <alvo>".
+    pub send_to: Vec<String>,
     pub confirm: Vec<String>,
     pub deny: Vec<String>,
     pub numbers: HashMap<String, u32>,
