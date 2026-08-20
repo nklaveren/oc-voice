@@ -66,30 +66,27 @@ Junto vai um requisito que M3.1 depende: todo processo externo (`hyprctl`, `wtyp
 
 **Aceite:** `just limits` passa — é o gate que verifica o teto de 400 linhas por arquivo, e ele já está vermelho hoje por causa do `main.rs`. `just check` verde (roda `limits`, `check`, `clippy`, `fmt` e `test`). Zero mudança de comportamento — o binário roda igual.
 
-### M0.4 — Gates de conformidade
+### M0.4 — Gates de conformidade ✅ `e5bb877`
 
 O teto de 400 linhas virou `just limits` porque critério escrito em prosa ninguém roda. Dois outros critérios deste backlog estão na mesma situação.
 
-**`just vocab` — vocabulário fora do código.** Três itens exigem que nenhuma palavra falada nem nome de aplicativo apareça em `src/` (M1.3, M2.1, M3.1), e o `AGENTS.md` repete como diretriz. Hoje há **28 ocorrências**:
+**`just vocab` — vocabulário fora do código.** Três itens exigem que nenhuma palavra falada nem nome de aplicativo apareça em `src/` (M1.3, M2.1, M3.1), e o `AGENTS.md` repete como diretriz. Hoje há **33 ocorrências**, medidas com `just vocab` (o item citava 28, de antes de M0.2 espalhar o código em módulos — as dicas do overlay e a fixture inline do `hyprctl` entraram na contagem):
 
 ```
-commands.rs:37   "envia" "manda" "cambio" "pronto"
-commands.rs:38   "cancela" "limpa"
-commands.rs:102  "navegador" "firefox"
-commands.rs:104  "oc-opencode"
-commands.rs:105  "terminal" "Alacritty"
-commands.rs:106  "editor" "vscode" "code"
+29× src/commands/mod.rs   tabelas de keyword, prefixos send_to, aliases e testes
+ 2× src/ui/overlay.rs     dicas de UI ("say envia/cambio to send")
+ 2× src/wm/hyprland.rs    fixture inline do hyprctl com class "code"
 ```
 
 O gate procura literais de string em `src/` contra duas listas — palavras de comando em português e nomes de aplicativo conhecidos — e reprova se achar. Nasce **vermelho** e só fica verde quando M1.3 e M2.1 moverem tudo para o `commands.toml`, igual ao `just limits`. Depois disso, impede que alguém acrescente "só um alias rapidinho" no código.
 
 Exceção legítima: `commands.rs` pode conter o TOML default embutido via `include_str!`, que é configuração, não código. O gate ignora arquivos `.toml`.
 
-**`just refs` — referência morta na documentação.** O `BACKLOG.md` cita 6 posições `arquivo:linha`. Todas envelheceram no M0.1: uma vez quando `llm_classifier.rs` virou `commands.rs`, outra quando o `main.rs` deslocou 4 linhas. Foram corrigidas à mão nas duas vezes.
+**`just refs` — referência morta na documentação.** O `BACKLOG.md` cita 6 posições `arquivo:linha`. Todas envelheceram no M0.1: uma vez quando `llm_classifier.rs` virou `commands.rs`, outra quando o `main.rs` deslocou 4 linhas. Foram corrigidas à mão nas duas vezes. Envelheceram uma terceira vez no M0.2, quando `main.rs` virou módulos, e foram corrigidas no commit que ligou este gate.
 
-É o modo de falha crônico deste repo — o `README` e o `AGENTS.md` ficaram mentindo por meses, e o backlog conseguiu ficar obsoleto dentro de um único commit. O gate extrai cada `arquivo:linha` dos documentos, confere se o arquivo existe e se a linha ainda contém o símbolo que o texto afirma, e reprova na divergência. Deve passar hoje.
+É o modo de falha crônico deste repo — o `README` e o `AGENTS.md` ficaram mentindo por meses, e o backlog conseguiu ficar obsoleto dentro de um único commit. O gate extrai cada `arquivo:linha` dos documentos (fora de blocos de código), confere se o arquivo existe e se a linha ainda contém o símbolo que o texto afirma, e reprova na divergência. Toda referência precisa nomear o símbolo em backticks ao lado — é o que o gate verifica. Deve passar hoje.
 
-**Aceite:** `just refs` verde. `just vocab` vermelho hoje, listando as 28 ocorrências, e verde depois de M2.1. Ambos entram no `just check`.
+**Aceite:** `just refs` verde. `just vocab` vermelho hoje, listando as 33 ocorrências, e verde depois de M2.1. Ambos entram no `just check`.
 
 ### M0.5 — Pânico silencioso na thread de áudio
 
@@ -122,7 +119,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos (`commands.rs:24`), a tabela de aliases (`commands.rs:100`) e o filtro de alucinação (`main.rs:866`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:30`), a tabela de aliases `resolve_target_alias` (`src/commands/mod.rs:106`) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:84`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -148,7 +145,7 @@ A capacidade de **recusar** é o requisito central, não a de acertar. Um autoco
 
 Pipeline, nesta ordem:
 
-1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `commands.rs:85`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
+1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:91`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
 2. **Filtrar por contagem de palavras** — só entram na comparação candidatos com o mesmo número de palavras da fala. Este passo é o que separa comando de ditado, ver medição abaixo.
 3. **Pontuar** com Jaro-Winkler (`strsim`), limiar default 0.82.
 
@@ -193,7 +190,7 @@ Os templates moram no `commands.toml` junto do resto do vocabulário, porque a o
 
 ### M1.2 — Trocar as três comparações pelo matcher
 
-Reescrever `classify` (`commands.rs:24`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
+Reescrever `classify` (`src/commands/mod.rs:30`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
 
 Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **string inteira** normalizada. Existe uma guarda de ≤5 palavras sugerindo que frases curtas deveriam passar, mas na prática só a palavra sozinha funciona — "ok câmbio" cai como ditado.
 
@@ -201,7 +198,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `main.rs:1202`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:53`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 
@@ -240,7 +237,7 @@ As tabelas de números (M3.2) e direções (M3.1) moram aqui também — são vo
 
 ### M2.1 — Matar a tabela de aliases
 
-`resolve_target_alias` ([`commands.rs:100`](src/commands.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
+`resolve_target_alias` ([`src/commands/mod.rs:106`](src/commands/mod.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
 
 Medido nas janelas abertas nesta máquina, **5 dos 7 aliases não encontram nada**:
 
@@ -313,7 +310,7 @@ O limiar mais duro em título é de graça: alvo legítimo casa por token exato 
 
 ### M2.2 — Corrigir o match vazio em `focus_window_and_type`
 
-Em [`main.rs:1051`](src/main.rs) a condição `target_lower.contains(&class)` é verdadeira sempre que `class` é string vazia, porque `contains("")` é sempre `true`. Uma janela sem classe captura qualquer alvo falado.
+Em [`src/wm/hyprland.rs:51`](src/wm/hyprland.rs) a condição `target_lower.contains(&class)` é verdadeira sempre que `class` é string vazia, porque `contains("")` é sempre `true`. Uma janela sem classe captura qualquer alvo falado.
 
 **Aceite:** candidatos com `class` e `title` vazios são descartados antes de comparar. Teste com fixture contendo uma janela de classe vazia.
 
