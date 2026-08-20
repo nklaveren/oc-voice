@@ -65,7 +65,7 @@ fn try_settle_pending(
             PendingAction::Dispatch { args, label } => {
                 let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
                 let _ = runner.output("hyprctl", &arg_refs);
-                emit(tx, TranscriptEvent::Final(format!("[{label}]")));
+                emit(tx, TranscriptEvent::notice(format!("[{label}]")));
             }
         }
         return true;

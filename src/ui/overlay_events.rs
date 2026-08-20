@@ -4,7 +4,7 @@
 //! place where a TranscriptEvent becomes something on screen.
 
 use super::{Line, OverlayApp};
-use crate::TranscriptEvent;
+use crate::{Source, TranscriptEvent};
 
 /// A meeting is an hour of talking; four lines of scrollback was a debugging
 /// default that survived into a subtitle window. Kept bounded so memory does
@@ -28,9 +28,18 @@ impl OverlayApp {
         }
     }
 
-    fn push_line(&mut self, text: impl Into<String>) {
-        self.finals.push(Line::new(text));
+    fn push_line(&mut self, text: impl Into<String>, source: Source) {
+        self.finals.push(Line::new(text, source));
         self.trim_history();
+    }
+
+    /// The in-progress slot for one stream. Two exist so a meeting and the
+    /// microphone speaking at once do not overwrite each other.
+    fn partial_mut(&mut self, source: Source) -> &mut String {
+        match source {
+            Source::Mic => &mut self.partial_mic,
+            Source::System => &mut self.partial_system,
+        }
     }
 
     /// Attach a translation to the line it was made from.
@@ -64,34 +73,36 @@ impl OverlayApp {
                 }
             };
             match event {
-                TranscriptEvent::Partial(s) => self.partial = s,
-                TranscriptEvent::PartialCleared => self.partial.clear(),
-                TranscriptEvent::Final(s) => {
-                    self.partial.clear();
-                    if !is_speech(&s) {
+                TranscriptEvent::Partial { text, source } => {
+                    *self.partial_mut(source) = text;
+                }
+                TranscriptEvent::PartialCleared(source) => self.partial_mut(source).clear(),
+                TranscriptEvent::Final { text, source } => {
+                    self.partial_mut(source).clear();
+                    if !is_speech(&text) {
                         continue;
                     }
                     if let Some((_, ref mut n)) = self.recording {
                         *n += 1;
                     }
-                    self.push_line(s);
+                    self.push_line(text, source);
                 }
                 TranscriptEvent::Buffered(n) => {
-                    self.partial.clear();
+                    self.partial_mic.clear();
                     self.buffered = n;
                 }
                 TranscriptEvent::Sent(s) => {
-                    self.partial.clear();
+                    self.partial_mic.clear();
                     self.buffered = 0;
-                    self.push_line(format!("[sent] {s}"));
+                    self.push_line(format!("[sent] {s}"), Source::Mic);
                 }
                 TranscriptEvent::SessionStarted => {
-                    self.partial.clear();
+                    self.partial_mic.clear();
                     self.recording = Some((std::time::Instant::now(), 0));
                 }
                 TranscriptEvent::SessionStopped(path, lines) => {
                     self.recording = None;
-                    self.push_line(format!("[sessão] {lines} falas -> {path}"));
+                    self.push_line(format!("[sessão] {lines} falas -> {path}"), Source::Mic);
                 }
                 TranscriptEvent::Translated { original, text } => {
                     // Shown under its original, which stays visible: what was
@@ -99,28 +110,28 @@ impl OverlayApp {
                     self.attach_translation(&original, text);
                 }
                 TranscriptEvent::AwaitingConfirmation(what) => {
-                    self.partial.clear();
-                    self.push_line(format!("[confirm?] {what}"));
+                    self.partial_mic.clear();
+                    self.push_line(format!("[confirm?] {what}"), Source::Mic);
                 }
                 TranscriptEvent::ConfirmationCancelled => {
-                    self.partial.clear();
-                    self.push_line("[confirm?] cancelled");
+                    self.partial_mic.clear();
+                    self.push_line("[confirm?] cancelled", Source::Mic);
                 }
                 TranscriptEvent::Newline => {
-                    self.partial.clear();
-                    self.push_line("[newline]");
+                    self.partial_mic.clear();
+                    self.push_line("[newline]", Source::Mic);
                 }
                 TranscriptEvent::Cancelled => {
-                    self.partial.clear();
+                    self.partial_mic.clear();
                     self.buffered = 0;
-                    self.push_line("[cancelled] buffer cleared");
+                    self.push_line("[cancelled] buffer cleared", Source::Mic);
                 }
                 TranscriptEvent::SentTo(_, target, score) => {
-                    self.partial.clear();
+                    self.partial_mic.clear();
                     self.buffered = 0;
                     // M2.3: the overlay shows where the text went and how sure
                     // the resolver was.
-                    self.push_line(format!("[sent_to] {target} ({score:.2})"));
+                    self.push_line(format!("[sent_to] {target} ({score:.2})"), Source::Mic);
                 }
             }
         }

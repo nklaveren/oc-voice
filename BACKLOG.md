@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:52`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:166`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:52`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:206`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -204,7 +204,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração ✅ `4bec2b2`
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:82`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:92`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 
@@ -527,9 +527,26 @@ O `LanguageLock` já sabe qual é o idioma da fonte depois de três detecções 
 
 **Aceite:** com a reunião em inglês, o overlay mostra pt-BR e o arquivo da sessão contém o inglês original, ambos verificáveis no mesmo teste. Conversão do modelo é passo único e offline (`ct2-transformers-converter`, único Python envolvido); o runtime é Rust puro via `ct2rs`. Fonte num idioma sem modelo instalado deve mostrar o original, nunca uma tradução errada.
 
+### M7.5 — Capturar os dois lados da conversa ✅ `f4c46ec`
+
+Em System Audio o microfone era desligado. A ata registrava a reunião inteira **menos a pessoa que a estava gravando** — pergunta transcrita, resposta ausente.
+
+Agora os dois streams rodam juntos. O que a separação obrigou a corrigir, e que seria bug silencioso se os streams fossem misturados num buffer só:
+
+- **Lock de idioma por stream.** Era global, em `AppSettings.detected_language`. Uma reunião em inglês fixava `en` e o português seguinte do microfone era entregue ao whisper como inglês. Cada stream tem o seu; só o microfone publica o dele, porque `detected_language` existe para escolher o vocabulário de comandos e só o microfone dispara comandos.
+- **Tarefa de tradução por stream.** A tarefa `translate` do whisper emite inglês seja qual for a entrada. Aplicada ao microfone, escreveria inglês no seu próprio registro.
+- **Só o microfone age.** Áudio de reunião é transcrito e nada mais: não digita, não despacha para o WM, e não fecha sua gravação por dizer a palavra de parada. Antes disso o áudio do sistema podia disparar `grava`/`para`.
+- **Dois parciais.** Um slot só fazia a frase que você está falando sumir toda vez que a reunião terminava a dela — e as duas são simultâneas exatamente quando há sobreposição.
+
+Na ata cada fala leva `você` ou `reunião`, com contagem por lado no cabeçalho. No overlay a distinção é por cor.
+
+**Aceite:** falar durante uma reunião produz as duas falas na mesma rolagem, na ordem em que aconteceram, e o arquivo da sessão contém ambas atribuídas. `streams_for` decide quem escuta o quê, e um teste garante que nenhum modo de ditado captura áudio do sistema.
+
 ### M7.4 — Quem falou: diarização por embedding de voz
 
 O registro da sessão sai como bloco corrido. Numa reunião de várias pessoas isso perde a maior parte do valor: uma ata sem falante é um monólogo de gente diferente.
+
+**M7.5 já resolveu o corte mais grosso** — você contra o resto — sem modelo nenhum, porque a separação vem da fonte de áudio e não de inferência. O que sobra para M7.4 é distinguir as pessoas *dentro* do stream da reunião, e o rótulo `você` nunca precisa ser adivinhado.
 
 Whisper **não** faz diarização — ele transcreve, não identifica. Mas a arquitetura já entrega o pré-requisito difícil de graça: **o VAD já segmenta por fala**, e um segmento delimitado por silêncio é quase sempre de uma pessoa só. O que falta é dizer se dois segmentos são da mesma voz.
 

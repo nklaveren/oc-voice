@@ -46,7 +46,11 @@ struct OverlayApp {
     running: Arc<AtomicBool>,
     settings: Arc<Mutex<AppSettings>>,
     config: Arc<crate::config::Config>,
-    pub(super) partial: String,
+    /// One in-progress utterance per stream. A single slot would let the
+    /// meeting and the microphone overwrite each other mid-sentence, which is
+    /// exactly when both are speaking.
+    pub(super) partial_mic: String,
+    pub(super) partial_system: String,
     pub(super) finals: Vec<Line>,
     pub(super) buffered: usize,
     show_settings: bool,
@@ -68,16 +72,22 @@ struct OverlayApp {
 pub(super) struct Line {
     pub text: String,
     pub translation: Option<String>,
+    pub source: crate::Source,
 }
 
 impl Line {
-    pub(super) fn new(text: impl Into<String>) -> Self {
+    pub(super) fn new(text: impl Into<String>, source: crate::Source) -> Self {
         Line {
             text: text.into(),
             translation: None,
+            source,
         }
     }
 }
+
+/// Your own speech, tinted so it is distinguishable at a glance from the
+/// meeting's without reading the label.
+const MIC_COLOR: egui::Color32 = egui::Color32::from_rgb(190, 235, 160);
 
 const LANGUAGES: &[&str] = &["auto", "pt", "en", "es", "fr", "de", "ja", "zh"];
 
@@ -102,6 +112,16 @@ fn scroll_height(available: f32, controls: f32) -> f32 {
     (available - controls).max(0.0)
 }
 
+/// Colour is the whole distinction between your speech and the meeting's.
+/// A text label on every line would double the height of a subtitle overlay
+/// for information the reader already has from context.
+fn speaker_color(source: crate::Source) -> egui::Color32 {
+    match source {
+        crate::Source::Mic => MIC_COLOR,
+        crate::Source::System => egui::Color32::WHITE,
+    }
+}
+
 impl OverlayApp {
     fn new(
         rx: Receiver<TranscriptEvent>,
@@ -114,7 +134,8 @@ impl OverlayApp {
             running,
             settings,
             config,
-            partial: String::new(),
+            partial_mic: String::new(),
+            partial_system: String::new(),
             finals: Vec::new(),
             buffered: 0,
             show_settings: false,
@@ -217,7 +238,8 @@ impl eframe::App for OverlayApp {
                 // vanished, leaving a black rectangle with no way to switch
                 // modes. Reserve the chrome first, give the scroll what's left.
                 // Resolved before the closure borrows `self` for the lines.
-                let hint = if self.finals.is_empty() && self.partial.is_empty() {
+                let idle = self.partial_mic.is_empty() && self.partial_system.is_empty();
+                let hint = if self.finals.is_empty() && idle {
                     Some(match self.send_word() {
                         Some(w) => format!("[ speak into the mic \u{2014} say \"{w}\" to send ]"),
                         None => "[ speak into the mic \u{2014} dictation only ]".to_string(),
@@ -236,7 +258,7 @@ impl eframe::App for OverlayApp {
                             ui.add(
                                 egui::Label::new(
                                     egui::RichText::new(&line.text)
-                                        .color(egui::Color32::WHITE)
+                                        .color(speaker_color(line.source))
                                         .size(18.0),
                                 )
                                 // Without this, long utterances are cut at the
@@ -259,11 +281,20 @@ impl eframe::App for OverlayApp {
                                 );
                             }
                         }
-                        if !self.partial.is_empty() {
+                        // Both in-progress utterances, each in its speaker's
+                        // colour: while you talk over a meeting there are two,
+                        // and neither should overwrite the other.
+                        for (partial, source) in [
+                            (&self.partial_system, crate::Source::System),
+                            (&self.partial_mic, crate::Source::Mic),
+                        ] {
+                            if partial.is_empty() {
+                                continue;
+                            }
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new(&self.partial)
-                                        .color(egui::Color32::from_gray(180))
+                                    egui::RichText::new(partial)
+                                        .color(speaker_color(source).gamma_multiply(0.7))
                                         .italics()
                                         .size(18.0),
                                 )

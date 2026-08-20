@@ -16,8 +16,42 @@ pub fn transcribe_with(
     settings: &Arc<Mutex<AppSettings>>,
     single_segment: bool,
 ) -> Result<String> {
-    let mut throwaway = LanguageLock::default();
-    transcribe_locked(state, audio, settings, single_segment, &mut throwaway)
+    let (language, translate) = {
+        let s = crate::lock_settings(settings);
+        (s.language.clone(), s.mode == TranscribeMode::Translate)
+    };
+    let mut throwaway = LanguageLock {
+        locked: crate::lock_settings(settings).detected_language.clone(),
+        ..Default::default()
+    };
+    transcribe_locked(
+        state,
+        audio,
+        &TranscribeOpts {
+            language,
+            translate,
+            single_segment,
+        },
+        &mut throwaway,
+    )
+}
+
+/// Everything about *how* to transcribe one segment that is not the audio.
+///
+/// These used to be read from the shared `AppSettings` inside the transcribe
+/// call. That was fine while there was one audio stream; with the microphone
+/// and the meeting running at once it is not. Both would consult and overwrite
+/// the same "detected language", so a meeting in English pinned `en` globally
+/// and the next Portuguese utterance from the mic was decoded as English.
+/// Per-stream settings are now passed in explicitly.
+pub struct TranscribeOpts {
+    /// The UI's source-language selection: `auto`, or an explicit code.
+    pub language: String,
+    /// Whisper's translate task, which emits English whatever the source.
+    pub translate: bool,
+    /// Force one output segment. The live pipeline wants it — VAD already
+    /// bounded the audio to one utterance — but it truncates long recordings.
+    pub single_segment: bool,
 }
 
 /// Whisper re-detects the language on every segment, and a three-second
@@ -28,10 +62,13 @@ pub fn transcribe_with(
 /// unpins after the same number disagree. Once pinned it is passed to whisper
 /// as an explicit hint, which is both stabler and more accurate than making
 /// it guess again every few seconds.
+/// The pinned language lives here rather than in the shared settings, so two
+/// concurrent streams cannot pin over each other.
 #[derive(Default)]
 pub struct LanguageLock {
     candidate: Option<String>,
     streak: usize,
+    locked: Option<String>,
 }
 
 impl LanguageLock {
@@ -47,20 +84,26 @@ impl LanguageLock {
             self.streak = 1;
         }
         if self.streak == Self::AGREEMENT {
-            self.candidate.as_deref()
+            self.locked = self.candidate.clone();
+            self.locked.as_deref()
         } else {
             None
         }
+    }
+
+    /// The language this stream has settled on, if any.
+    pub fn locked(&self) -> Option<&str> {
+        self.locked.as_deref()
     }
 }
 
 pub fn transcribe_locked(
     state: &mut whisper_rs::WhisperState,
     audio: &[f32],
-    settings: &Arc<Mutex<AppSettings>>,
-    single_segment: bool,
+    opts: &TranscribeOpts,
     lock: &mut LanguageLock,
 ) -> Result<String> {
+    let single_segment = opts.single_segment;
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_print_special(false);
     params.set_print_progress(false);
@@ -72,12 +115,10 @@ pub fn transcribe_locked(
     params.set_suppress_blank(true);
     params.set_split_on_word(true);
 
-    let (lang, translate) = {
-        let s = crate::lock_settings(settings);
-        (s.language.clone(), s.mode == TranscribeMode::Translate)
-    };
+    let lang = opts.language.clone();
+    let translate = opts.translate;
     // A locked language wins over detection: see LanguageLock.
-    let locked = crate::lock_settings(settings).detected_language.clone();
+    let locked = lock.locked().map(str::to_string);
 
     // `language` is the SOURCE hint, not the output language — whisper's
     // translate task only ever emits English. In Translate mode the source is
@@ -130,7 +171,6 @@ pub fn transcribe_locked(
         {
             if let Some(settled) = lock.observe(code) {
                 info!(language = settled, "source language locked");
-                crate::lock_settings(settings).detected_language = Some(settled.to_string());
             }
         }
     }

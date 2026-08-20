@@ -8,9 +8,13 @@ use std::io::Write;
 /// Fan-out: send to the UI channel AND echo to stdout for debugging.
 pub fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
     match &event {
-        TranscriptEvent::Partial(s) => write_stdout(&format!("\r\x1b[2K[partial] {s}")),
-        TranscriptEvent::PartialCleared => write_stdout("\r\x1b[2K"),
-        TranscriptEvent::Final(s) => write_stdout(&format!("\r\x1b[2K[final]   {s}\n")),
+        TranscriptEvent::Partial { text, source } => {
+            write_stdout(&format!("\r\x1b[2K[partial:{}] {text}", source.label()))
+        }
+        TranscriptEvent::PartialCleared(_) => write_stdout("\r\x1b[2K"),
+        TranscriptEvent::Final { text, source } => {
+            write_stdout(&format!("\r\x1b[2K[final:{}] {text}\n", source.label()))
+        }
         TranscriptEvent::Buffered(n) => write_stdout(&format!(
             "\r\x1b[2K[buffered] {n} line(s) waiting for keyword"
         )),

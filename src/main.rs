@@ -46,13 +46,50 @@ const PARTIAL_MIN_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * 600 / 1000; // 
 /// whisper wants at least 1 s of audio; shorter inputs get padded with silence
 pub const MIN_TRANSCRIBE_SAMPLES: usize = TARGET_SAMPLE_RATE as usize; // 1 s
 
+/// Where an utterance came from.
+///
+/// In System Audio mode both run at once: capturing only the meeting produced
+/// a record of everything said except by the person keeping it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// The microphone — you.
+    Mic,
+    /// The system audio sink monitor — everyone else.
+    System,
+}
+
+impl Source {
+    /// Only the microphone may fire commands, dictate, or set the command
+    /// vocabulary's language. Audio arriving from a meeting is transcribed and
+    /// nothing more: a call saying "grava" must not start a recording, and it
+    /// certainly must not type into the editor.
+    pub fn may_command(self) -> bool {
+        matches!(self, Source::Mic)
+    }
+
+    /// Label used in the overlay and the session record.
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::Mic => "você",
+            Source::System => "reunião",
+        }
+    }
+}
+
 /// Events emitted by the audio pipeline, consumed by both stdout and the overlay UI.
 #[derive(Debug, Clone)]
 pub enum TranscriptEvent {
-    Partial(String),
-    Final(String),
-    /// Sent when a partial utterance ends with no recognizable text; lets the UI clear it.
-    PartialCleared,
+    Partial {
+        text: String,
+        source: Source,
+    },
+    Final {
+        text: String,
+        source: Source,
+    },
+    /// Sent when a partial utterance ends with no recognizable text; lets the
+    /// UI clear that stream's partial without touching the other's.
+    PartialCleared(Source),
     /// In Enter mode: accumulated line count waiting for "cambio".
     Buffered(usize),
     /// In Enter mode: text was sent to the focused input.
@@ -82,6 +119,18 @@ pub enum TranscriptEvent {
     AwaitingConfirmation(String),
     /// The pending command was discarded.
     ConfirmationCancelled,
+}
+
+impl TranscriptEvent {
+    /// A line the app produced about itself — command feedback, a dispatch
+    /// receipt — rather than something a person said. Attributed to the mic
+    /// because that is what caused it; only ever shown, never recorded.
+    pub fn notice(text: String) -> Self {
+        TranscriptEvent::Final {
+            text,
+            source: Source::Mic,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

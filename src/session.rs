@@ -20,8 +20,16 @@ pub struct Session {
     started: Instant,
     started_at: DateTime<Local>,
     source: &'static str,
-    language: Option<String>,
-    lines: Vec<(Duration, String)>,
+    lines: Vec<Utterance>,
+}
+
+struct Utterance {
+    at: Duration,
+    /// Who spoke: the microphone, or the meeting. Not a name — the record
+    /// says what it knows and no more. Telling the two apart is what M7.4
+    /// extends, and even then an unrecognised voice stays unnamed.
+    speaker: &'static str,
+    text: String,
 }
 
 impl Session {
@@ -31,22 +39,21 @@ impl Session {
             started: Instant::now(),
             started_at: Local::now(),
             source,
-            language: None,
             lines: Vec::new(),
         }
     }
 
-    /// Record one finalized utterance. `language` is whatever the ASR settled
-    /// on; the first non-empty value wins, since a session is one meeting.
-    pub fn push(&mut self, text: &str, language: Option<&str>) {
+    /// Record one finalized utterance, attributed to whoever produced it.
+    pub fn push(&mut self, text: &str, speaker: &'static str) {
         let text = text.trim();
         if text.is_empty() {
             return;
         }
-        if self.language.is_none() {
-            self.language = language.map(str::to_string);
-        }
-        self.lines.push((self.started.elapsed(), text.to_string()));
+        self.lines.push(Utterance {
+            at: self.started.elapsed(),
+            speaker,
+            text: text.to_string(),
+        });
     }
 
     pub fn elapsed(&self) -> Duration {
@@ -69,13 +76,12 @@ impl Session {
         let _ = writeln!(out, "| Início | {} |", self.started_at.format("%H:%M:%S"));
         let _ = writeln!(out, "| Fim | {} |", end.format("%H:%M:%S"));
         let _ = writeln!(out, "| Duração | {} |", hms(self.elapsed()));
-        let _ = writeln!(out, "| Fonte | {} |", self.source);
-        let _ = writeln!(
-            out,
-            "| Idioma | {} |",
-            self.language.as_deref().unwrap_or("não detectado")
-        );
+        let _ = writeln!(out, "| Iniciado por | {} |", self.source);
         let _ = writeln!(out, "| Falas | {} |", self.lines.len());
+        for speaker in self.speakers() {
+            let n = self.lines.iter().filter(|l| l.speaker == speaker).count();
+            let _ = writeln!(out, "| — {speaker} | {n} |");
+        }
         let _ = writeln!(out);
         let _ = writeln!(
             out,
@@ -84,11 +90,22 @@ impl Session {
         let _ = writeln!(out);
         let _ = writeln!(out, "## Transcrição");
         let _ = writeln!(out);
-        for (at, text) in &self.lines {
-            let _ = writeln!(out, "**{}** {}", hms(*at), text);
+        for line in &self.lines {
+            let _ = writeln!(out, "**{}** `{}` {}", hms(line.at), line.speaker, line.text);
             let _ = writeln!(out);
         }
         out
+    }
+
+    /// Speakers in the order they first appear.
+    fn speakers(&self) -> Vec<&'static str> {
+        let mut seen: Vec<&'static str> = Vec::new();
+        for line in &self.lines {
+            if !seen.contains(&line.speaker) {
+                seen.push(line.speaker);
+            }
+        }
+        seen
     }
 
     /// Write the session and return where it landed.
@@ -126,27 +143,48 @@ mod tests {
 
     #[test]
     fn markdown_carries_the_originals_with_timestamps() {
-        let mut s = Session::start("system");
-        s.push("Yeah, sure, yeah.", Some("en"));
-        s.push("  ", Some("en")); // whitespace-only never becomes a line
-        s.push("Okay, do it now.", Some("en"));
+        let mut s = Session::start("reunião");
+        s.push("Yeah, sure, yeah.", "reunião");
+        s.push("  ", "reunião"); // whitespace-only never becomes a line
+        s.push("Okay, do it now.", "reunião");
         let md = s.to_markdown();
 
         assert!(md.contains("Yeah, sure, yeah."));
         assert!(md.contains("Okay, do it now."));
         assert_eq!(s.line_count(), 2, "empty utterance must not be recorded");
-        assert!(md.contains("| Idioma | en |"));
-        assert!(md.contains("| Fonte | system |"));
+        assert!(md.contains("| Iniciado por | reunião |"));
         // Every line is timestamped.
         assert_eq!(md.matches("**00:00:").count(), 2);
+    }
+
+    #[test]
+    fn both_sides_of_the_conversation_are_recorded_and_told_apart() {
+        // Capturing only system audio produced a record of everything said in
+        // a meeting except by the person keeping the record.
+        let mut s = Session::start("reunião");
+        s.push("They should have a parent.", "reunião");
+        s.push("Concordo, faz sentido.", "você");
+        s.push("Right, let's do that.", "reunião");
+        let md = s.to_markdown();
+
+        assert!(
+            md.contains("Concordo, faz sentido."),
+            "your own words: {md}"
+        );
+        assert!(md.contains("`você`"), "and attributed to you");
+        assert!(md.contains("`reunião`"));
+        // The header counts each side, so a silent participant is visible as
+        // a number rather than by scrolling the whole transcript.
+        assert!(md.contains("| — reunião | 2 |"), "{md}");
+        assert!(md.contains("| — você | 1 |"), "{md}");
     }
 
     #[test]
     fn the_record_is_never_the_translation() {
         // The whole point of M7.2's split: a session must contain what was
         // said, not a machine's rendering of it.
-        let mut s = Session::start("system");
-        s.push("They should have a parent.", Some("en"));
+        let mut s = Session::start("reunião");
+        s.push("They should have a parent.", "reunião");
         let md = s.to_markdown();
         assert!(md.contains("They should have a parent."));
         assert!(!md.contains("Eles devem ter um pai"));

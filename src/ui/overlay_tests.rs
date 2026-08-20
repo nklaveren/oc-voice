@@ -2,6 +2,7 @@
 //! invariant that keeps the control row on screen.
 
 use super::*;
+use crate::Source;
 
 fn app_with_channel() -> (OverlayApp, crossbeam_channel::Sender<TranscriptEvent>) {
     let (tx, rx) = crossbeam_channel::unbounded();
@@ -50,6 +51,22 @@ fn mode_button_cycles_through_all_four_modes() {
     assert!(seen.contains(&TranscribeMode::Translate));
 }
 
+/// A meeting utterance. Most overlay tests are about the subtitle path.
+fn heard(text: &str) -> TranscriptEvent {
+    TranscriptEvent::Final {
+        text: text.to_string(),
+        source: Source::System,
+    }
+}
+
+/// Something you said.
+fn spoke(text: &str) -> TranscriptEvent {
+    TranscriptEvent::Final {
+        text: text.to_string(),
+        source: Source::Mic,
+    }
+}
+
 fn translated(original: &str, text: &str) -> TranscriptEvent {
     TranscriptEvent::Translated {
         original: original.to_string(),
@@ -63,8 +80,7 @@ fn a_translation_event_reaches_renderable_state() {
     // state wired and the drawing missing: the worker translated, the
     // event arrived, the field was set, and nothing rendered it.
     let (mut app, tx) = app_with_channel();
-    tx.send(TranscriptEvent::Final("They should have a parent.".into()))
-        .unwrap();
+    tx.send(heard("They should have a parent.")).unwrap();
     tx.send(translated(
         "They should have a parent.",
         "Eles devem ter um pai.",
@@ -87,12 +103,10 @@ fn old_translations_stay_in_the_scrollback() {
     // part you did not follow. Keeping only the newest translation and
     // clearing it on every utterance stripped exactly that away.
     let (mut app, tx) = app_with_channel();
-    tx.send(TranscriptEvent::Final("first sentence".into()))
-        .unwrap();
+    tx.send(heard("first sentence")).unwrap();
     tx.send(translated("first sentence", "primeira frase"))
         .unwrap();
-    tx.send(TranscriptEvent::Final("second sentence".into()))
-        .unwrap();
+    tx.send(heard("second sentence")).unwrap();
     tx.send(translated("second sentence", "segunda frase"))
         .unwrap();
     app.drain_events();
@@ -108,10 +122,9 @@ fn a_translation_attaches_to_its_own_original_not_the_newest_line() {
     // behind, so by the time one arrives the newest line is regularly a
     // different utterance. Pairing by position would caption the wrong one.
     let (mut app, tx) = app_with_channel();
-    tx.send(TranscriptEvent::Final("slow one".into())).unwrap();
-    tx.send(TranscriptEvent::Final("dropped by the worker".into()))
-        .unwrap();
-    tx.send(TranscriptEvent::Final("fast one".into())).unwrap();
+    tx.send(heard("slow one")).unwrap();
+    tx.send(heard("dropped by the worker")).unwrap();
+    tx.send(heard("fast one")).unwrap();
     tx.send(translated("slow one", "a lenta")).unwrap();
     app.drain_events();
 
@@ -123,8 +136,7 @@ fn a_translation_attaches_to_its_own_original_not_the_newest_line() {
 #[test]
 fn a_translation_with_no_matching_original_is_dropped_not_misattached() {
     let (mut app, tx) = app_with_channel();
-    tx.send(TranscriptEvent::Final("something said".into()))
-        .unwrap();
+    tx.send(heard("something said")).unwrap();
     tx.send(translated("never said", "nunca dito")).unwrap();
     app.drain_events();
 
@@ -140,14 +152,60 @@ fn bare_punctuation_never_becomes_a_line() {
     // Short segments make whisper emit a lone ".", which filled the meeting
     // overlay with blank-looking rows between real speech.
     let (mut app, tx) = app_with_channel();
-    tx.send(TranscriptEvent::Final(".".into())).unwrap();
-    tx.send(TranscriptEvent::Final(" ... ".into())).unwrap();
-    tx.send(TranscriptEvent::Final("real speech".into()))
-        .unwrap();
+    tx.send(heard(".")).unwrap();
+    tx.send(heard(" ... ")).unwrap();
+    tx.send(heard("real speech")).unwrap();
     app.drain_events();
 
     assert_eq!(app.finals.len(), 1);
     assert_eq!(app.finals[0].text, "real speech");
+}
+
+#[test]
+fn both_speakers_share_one_scrollback_in_the_order_they_spoke() {
+    // The point of capturing both: reading the conversation back as a
+    // conversation, not as two disconnected halves.
+    let (mut app, tx) = app_with_channel();
+    tx.send(heard("So what do you think?")).unwrap();
+    tx.send(spoke("Acho que faz sentido.")).unwrap();
+    tx.send(heard("Good, let's go with that.")).unwrap();
+    app.drain_events();
+
+    let order: Vec<Source> = app.finals.iter().map(|l| l.source).collect();
+    assert_eq!(order, vec![Source::System, Source::Mic, Source::System]);
+    assert_eq!(app.finals[1].text, "Acho que faz sentido.");
+}
+
+#[test]
+fn one_stream_finalizing_does_not_erase_the_others_partial() {
+    // A single partial slot meant that whenever the meeting finished a
+    // sentence, your half-spoken one vanished from the screen — and the two
+    // are simultaneous exactly when you talk over each other.
+    let (mut app, tx) = app_with_channel();
+    tx.send(TranscriptEvent::Partial {
+        text: "estou dizendo que".to_string(),
+        source: Source::Mic,
+    })
+    .unwrap();
+    tx.send(heard("...and that concludes it.")).unwrap();
+    app.drain_events();
+
+    assert_eq!(
+        app.partial_mic, "estou dizendo que",
+        "your in-progress sentence survived the meeting finalizing theirs"
+    );
+    assert!(app.partial_system.is_empty());
+}
+
+#[test]
+fn speakers_are_told_apart_by_colour() {
+    // Colour is the whole distinction in the overlay; if both sides render
+    // identically, capturing both just interleaves them into confusion.
+    assert_ne!(
+        speaker_color(Source::Mic),
+        speaker_color(Source::System),
+        "the two sides must not render identically"
+    );
 }
 
 #[test]
@@ -174,9 +232,12 @@ fn dead_pipeline_sets_failure_state() {
 #[test]
 fn live_pipeline_does_not_set_failure_state() {
     let (mut app, tx) = app_with_channel();
-    tx.send(TranscriptEvent::Partial("hello".to_string()))
-        .unwrap();
+    tx.send(TranscriptEvent::Partial {
+        text: "hello".to_string(),
+        source: Source::System,
+    })
+    .unwrap();
     app.drain_events();
     assert!(!app.pipeline_failed);
-    assert_eq!(app.partial, "hello");
+    assert_eq!(app.partial_system, "hello");
 }

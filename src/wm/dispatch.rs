@@ -106,7 +106,7 @@ fn resolve_direction(spoken: &str, vocab: &LangVocab, threshold: f64) -> Option<
 fn run_dispatch(runner: &Arc<dyn CommandRunner>, tx: &Sender<TranscriptEvent>, args: &[&str]) {
     let _ = runner.output("hyprctl", args);
     info!(?args, "dispatched");
-    emit(tx, TranscriptEvent::Final(format!("[{}]", args.join(" "))));
+    emit(tx, TranscriptEvent::notice(format!("[{}]", args.join(" "))));
 }
 
 /// Interpret one utterance as a WM command. Unrecognized speech is dropped —
