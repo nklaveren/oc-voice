@@ -527,6 +527,26 @@ O `LanguageLock` já sabe qual é o idioma da fonte depois de três detecções 
 
 **Aceite:** com a reunião em inglês, o overlay mostra pt-BR e o arquivo da sessão contém o inglês original, ambos verificáveis no mesmo teste. Conversão do modelo é passo único e offline (`ct2-transformers-converter`, único Python envolvido); o runtime é Rust puro via `ct2rs`. Fonte num idioma sem modelo instalado deve mostrar o original, nunca uma tradução errada.
 
+### M7.4 — Quem falou: diarização por embedding de voz
+
+O registro da sessão sai como bloco corrido. Numa reunião de várias pessoas isso perde a maior parte do valor: uma ata sem falante é um monólogo de gente diferente.
+
+Whisper **não** faz diarização — ele transcreve, não identifica. Mas a arquitetura já entrega o pré-requisito difícil de graça: **o VAD já segmenta por fala**, e um segmento delimitado por silêncio é quase sempre de uma pessoa só. O que falta é dizer se dois segmentos são da mesma voz.
+
+**O caminho, que reaproveita o que já existe.** O `ort` já está no grafo de dependências (via `voice_activity_detector`) e o `onnxruntime` já está no dev shell, com o conflito de protobuf resolvido em `af4da28`. Um modelo de embedding de locutor em ONNX (ECAPA-TDNN ou x-vector, tipicamente 15–25 MB) roda pela mesma infraestrutura, sem dependência nova e sem outro runtime.
+
+Por segmento: áudio → vetor de ~192 dimensões → similaridade de cosseno contra os centroides já vistos. Acima do limiar, mesma pessoa; abaixo, pessoa nova. **É estruturalmente o mesmo problema do resolvedor de janelas de M2.1** — normalizar, comparar por similaridade, decidir por limiar, recusar quando não há match — e merece a mesma disciplina: o limiar sai de medição contra gravação real, nunca de chute.
+
+**Cadastro opcional.** Sem cadastro os rótulos são `Falante A`, `Falante B`. Gravando a própria voz uma vez, o dono da máquina vira `Nicolas` e o resto continua anônimo — barato de implementar e melhora muito a legibilidade da ata.
+
+**Limites honestos, e precisam estar no README:**
+
+- **Fala sobreposta quebra.** Duas pessoas ao mesmo tempo produzem um embedding que não é de ninguém. É limitação do método, não de implementação.
+- **Segmento curto é pouco sinal.** Abaixo de ~1 s o embedding é instável; melhor marcar como indeterminado que atribuir errado.
+- Uma atribuição errada numa ata é do mesmo tipo de dano que uma tradução errada (M7.2): coloca na boca de alguém o que a pessoa não disse. Na dúvida, `Falante ?` — o registro admite não saber, nunca inventa.
+
+**Aceite:** gravação com três vozes distintas, sem sobreposição, produz três rótulos estáveis ao longo da sessão. O limiar de cosseno é medido e registrado aqui, como M5.4 fez com latência e M1.1 com o matcher. Segmento abaixo do mínimo de duração sai como indeterminado, e um teste garante isso.
+
 ### M7.3 — Separar fonte de tarefa
 
 `TranscribeMode` tem quatro valores que codificam combinações de duas dimensões, e por isso "gravar a reunião" e "traduzir a reunião" não podem coexistir. Trocar por dois eixos:
