@@ -38,19 +38,13 @@ fn the_control_row_always_fits() {
 }
 
 #[test]
-fn mode_button_cycles_through_all_four_modes() {
-    // M4.2: the selector must reach every mode and come back.
-    let start = TranscribeMode::Input;
-    let mut seen = vec![start];
-    let mut m = start;
-    for _ in 0..3 {
-        m = m.next();
-        assert!(!seen.contains(&m), "cycle revisited {m:?} early");
-        seen.push(m);
-    }
-    assert_eq!(m.next(), start, "cycle must close after all four");
-    assert!(seen.contains(&TranscribeMode::Command));
-    assert!(seen.contains(&TranscribeMode::Translate));
+fn the_mode_button_reaches_both_modes_and_comes_back() {
+    // M4.2: the selector must reach every mode. There were four; two pairs
+    // of them were the same thing, and cycling past the two dead ones cost
+    // an utterance each time.
+    let start = TranscribeMode::Enter;
+    assert_eq!(start.next(), TranscribeMode::Translate);
+    assert_eq!(start.next().next(), start, "the toggle must close");
 }
 
 /// A meeting utterance. Most overlay tests are about the subtitle path.
@@ -216,12 +210,7 @@ fn every_mode_says_what_it_is_for() {
     // Enter look identical while idle — both listen, both are about your own
     // speech — and the difference only shows after you have committed to one.
     let mut seen = std::collections::HashSet::new();
-    for mode in [
-        TranscribeMode::Input,
-        TranscribeMode::Enter,
-        TranscribeMode::Command,
-        TranscribeMode::Translate,
-    ] {
+    for mode in [TranscribeMode::Enter, TranscribeMode::Translate] {
         let hint = mode_hint(mode);
         assert!(!hint.is_empty(), "{mode:?} has no description");
         assert!(seen.insert(hint), "{mode:?} reuses another mode's words");

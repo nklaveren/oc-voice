@@ -187,14 +187,12 @@ impl OverlayApp {
                     // symbols did not, and rendered as empty boxes.
                     let current_mode = self.settings.lock().unwrap().mode;
                     let mode_label = match current_mode {
-                        TranscribeMode::Input => "\u{1f4dd} Input Mode",
+                        TranscribeMode::Enter => "\u{1f3a4} Microfone",
                         // No target language in the label: whether a
                         // translation appears depends on the model being
                         // installed, and a label that promises one when none
                         // is loaded is worse than no label.
-                        TranscribeMode::Translate => "\u{1f310} System Audio",
-                        TranscribeMode::Enter => "\u{1f4e4} Enter Mode",
-                        TranscribeMode::Command => "\u{1f5a5} Command Mode",
+                        TranscribeMode::Translate => "\u{1f310} Áudio do sistema",
                     };
                     if ui.button(mode_label).clicked() {
                         let mut s = self.settings.lock().unwrap();

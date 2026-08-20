@@ -134,17 +134,14 @@ fn open_session_file(runner: &Arc<dyn CommandRunner>, path: &str) {
 
 /// What each mode is for, in a few words, shown beside the button.
 ///
-/// Added because the person who built it forgot what Enter mode was for.
-/// Input and Enter look identical while idle — both listen, both are about
-/// your own speech — and the difference only shows up after you have already
-/// committed to one: Input types every utterance as it lands, Enter collects
-/// them so a thought can be assembled before anything is sent.
+/// Added because the person who built it forgot what Enter mode was for —
+/// which was fair, when four modes existed and two pairs of them were nearly
+/// the same thing. Two remain, and the difference between them is the one
+/// that matters: whose voice is being listened to.
 fn mode_hint(mode: TranscribeMode) -> &'static str {
     match mode {
-        TranscribeMode::Input => "digita cada fala na hora",
-        TranscribeMode::Enter => "junta as falas, e navega sem trocar de modo",
-        TranscribeMode::Command => "tudo é comando, nada vira texto",
-        TranscribeMode::Translate => "legenda o áudio do sistema, com tradução",
+        TranscribeMode::Enter => "sua voz: junta o texto e navega",
+        TranscribeMode::Translate => "áudio do sistema: legenda e traduz",
     }
 }
 

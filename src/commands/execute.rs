@@ -95,9 +95,9 @@ pub fn route_final(
     runner: &Arc<dyn CommandRunner>,
 ) {
     use crate::TranscribeMode;
-    // A pending confirmation intercepts the utterance in the modes that can
+    // A pending confirmation intercepts the utterance in the mode that can
     // create one.
-    if matches!(mode, TranscribeMode::Enter | TranscribeMode::Command) {
+    if matches!(mode, TranscribeMode::Enter) {
         if let Some(v) = crate::config::active_vocab(config, settings) {
             if try_settle_pending(trimmed, v, config.threshold(), pending, tx, runner) {
                 return;
@@ -105,9 +105,6 @@ pub fn route_final(
         }
     }
     match mode {
-        TranscribeMode::Input => {
-            type_text(&**runner, trimmed);
-        }
         TranscribeMode::Enter => {
             let vocab = crate::config::active_vocab(config, settings);
             match vocab.and_then(|v| classify(trimmed, v, config.threshold())) {
@@ -135,14 +132,6 @@ pub fn route_final(
                         execute_command(v, config, &cmd, enter_buffer, pending, tx, runner);
                     }
                 }
-            }
-        }
-        TranscribeMode::Command => {
-            // Everything is a WM command; dictation is dropped, never typed.
-            // Dispatch of navigation commands lands in M3.1.
-            let vocab = crate::config::active_vocab(config, settings);
-            if let Some(v) = vocab {
-                crate::wm::dispatch::dispatch_spoken(v, config, trimmed, runner, tx, pending);
             }
         }
         TranscribeMode::Translate => {}

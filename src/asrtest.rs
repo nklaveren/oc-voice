@@ -235,7 +235,7 @@ pub fn run(model_path: &str) -> Result<()> {
     let mut state = ctx.create_state().context("creating state")?;
     let settings = Arc::new(Mutex::new(AppSettings {
         language: "pt".to_string(),
-        mode: TranscribeMode::Input,
+        mode: TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
     }));

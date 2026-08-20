@@ -180,11 +180,11 @@ fn navigation_is_never_mistaken_for_a_mode_switch() {
     // And the real phrases still switch.
     assert!(matches!(
         classify("modo comando"),
-        Some(VoiceCommand::SetMode(ref m)) if m == "command"
+        Some(VoiceCommand::SetMode(ref m)) if m == "enter"
     ));
     assert!(matches!(
-        classify("modo ditado"),
-        Some(VoiceCommand::SetMode(ref m)) if m == "input"
+        classify("modo reunião"),
+        Some(VoiceCommand::SetMode(ref m)) if m == "translate"
     ));
 }
 

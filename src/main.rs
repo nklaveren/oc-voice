@@ -138,34 +138,44 @@ impl TranscriptEvent {
     }
 }
 
+/// What the app is doing with what it hears.
+///
+/// There were four. Two of them were the same thing wearing different
+/// clothes: Input typed every utterance where Enter accumulated them, and
+/// Command dispatched window commands where Enter, since the two grammars
+/// were merged, already does. Leaving a half-composed message to switch modes
+/// and switch back is friction the word-count gate makes unnecessary.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TranscribeMode {
-    Input,
-    Translate,
+    /// Your microphone. Speech accumulates as text until the send word;
+    /// a short utterance the window grammar recognises navigates instead of
+    /// being written down.
     Enter,
-    /// Everything is a WM command; nothing is ever typed (M4.2).
-    Command,
+    /// The machine's own output — a meeting, a video — subtitled and, when a
+    /// model is installed, translated for display.
+    Translate,
 }
 
 impl TranscribeMode {
     /// Resolve a language-neutral mode name from the vocabulary.
+    ///
+    /// `input` and `command` still resolve, to the mode that absorbed them.
+    /// A config written before the merge keeps working, and someone who says
+    /// "modo comando" out of habit gets the mode that runs those commands
+    /// rather than an error they have to read the changelog to understand.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
-            "input" => Some(TranscribeMode::Input),
+            "enter" | "input" | "command" => Some(TranscribeMode::Enter),
             "translate" => Some(TranscribeMode::Translate),
-            "enter" => Some(TranscribeMode::Enter),
-            "command" => Some(TranscribeMode::Command),
             _ => None,
         }
     }
 
-    /// The overlay button cycles modes in this order.
+    /// The overlay button alternates between the two.
     pub fn next(self) -> Self {
         match self {
-            TranscribeMode::Input => TranscribeMode::Translate,
+            TranscribeMode::Enter => TranscribeMode::Translate,
             TranscribeMode::Translate => TranscribeMode::Enter,
-            TranscribeMode::Enter => TranscribeMode::Command,
-            TranscribeMode::Command => TranscribeMode::Input,
         }
     }
 }

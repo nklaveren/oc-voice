@@ -84,13 +84,18 @@ nove = 9
 dez = 10
 
 # Trocar de modo sem tocar no overlay. O nome à direita é neutro de idioma.
+# Só existem dois modos: sua voz, e o áudio do sistema. As frases antigas
+# ("modo ditado", "modo comando") continuam valendo e caem no modo que as
+# absorveu — quem falava assim não precisa reaprender.
 [pt.modes]
-"modo ditado" = "input"
-"modo texto" = "input"
-"modo comando" = "command"
+"modo microfone" = "enter"
+"modo ditado" = "enter"
+"modo texto" = "enter"
+"modo comando" = "enter"
 "modo mensagem" = "enter"
 "modo reunião" = "translate"
 "modo legenda" = "translate"
+"modo sistema" = "translate"
 
 [pt.directions]
 direita = "r"
@@ -217,12 +222,14 @@ nine = 9
 ten = 10
 
 [en.modes]
-"input mode" = "input"
-"dictation mode" = "input"
-"command mode" = "command"
+"microphone mode" = "enter"
+"input mode" = "enter"
+"dictation mode" = "enter"
+"command mode" = "enter"
 "message mode" = "enter"
 "meeting mode" = "translate"
 "subtitle mode" = "translate"
+"system mode" = "translate"
 
 [en.directions]
 right = "r"

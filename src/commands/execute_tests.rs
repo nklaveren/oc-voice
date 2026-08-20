@@ -3,25 +3,29 @@
 use super::*;
 
 #[test]
-fn command_mode_never_types() {
-    // M4.2 acceptance: in Command mode, type_text is never reached — not
-    // for dictation, not even for the send word.
+fn a_dispatched_command_is_never_also_typed() {
+    // This was `command_mode_never_types`, and the mode it guarded is gone —
+    // absorbed into Enter, which does buffer text. The property it existed
+    // for is not gone: an utterance the window grammar acts on must not also
+    // land in the message you are composing. Losing the mode must not lose
+    // the guarantee.
     use crate::process::FakeRunner;
     let fake = Arc::new(FakeRunner::new(b"[]".to_vec()));
     let runner: Arc<dyn CommandRunner> = fake.clone();
     let config = crate::config::Config::embedded();
     let settings = std::sync::Mutex::new(crate::AppSettings {
         language: "pt".to_string(),
-        mode: crate::TranscribeMode::Command,
+        mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
     });
     let (tx, _rx) = crossbeam_channel::unbounded();
-    let mut buffer = Vec::new();
+    let mut buffer: Vec<String> = Vec::new();
     let mut pending = None;
-    for spoken in ["texto ditado qualquer", "câmbio", "envia para navegador"] {
+
+    for spoken in ["tela cheia", "janela da direita", "monitor esquerda"] {
         route_final(
-            crate::TranscribeMode::Command,
+            crate::TranscribeMode::Enter,
             spoken,
             &config,
             &settings,
@@ -31,13 +35,18 @@ fn command_mode_never_types() {
             &runner,
         );
     }
-    assert!(buffer.is_empty(), "Command mode must not buffer dictation");
+
+    assert!(
+        buffer.is_empty(),
+        "window commands leaked into the composed message: {buffer:?}"
+    );
     assert!(
         !fake
             .calls()
             .iter()
-            .any(|(p, _)| p == "wtype" || p == "xdotool" || p == "which"),
-        "Command mode must never reach text injection"
+            .any(|(p, _)| p == "wtype" || p == "xdotool"),
+        "a window command reached text injection: {:?}",
+        fake.calls()
     );
 }
 
@@ -134,7 +143,7 @@ fn fecha_then_confirma_kills_the_window() {
     let (fake, runner, config) = sendto_setup();
     let settings = std::sync::Mutex::new(crate::AppSettings {
         language: "pt".to_string(),
-        mode: crate::TranscribeMode::Command,
+        mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
     });
@@ -143,7 +152,7 @@ fn fecha_then_confirma_kills_the_window() {
     let mut pending = None;
     for spoken in ["fecha", "confirma"] {
         route_final(
-            crate::TranscribeMode::Command,
+            crate::TranscribeMode::Enter,
             spoken,
             &config,
             &settings,

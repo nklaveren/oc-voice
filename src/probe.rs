@@ -146,9 +146,10 @@ fn probe_one(
         println!("  como alvo    {} ({:.2})", t.class, t.score);
     }
 
-    // Both verdicts: the same utterance means different things per mode, and
-    // showing only one is how "the template matched but it says Dictation"
-    // becomes confusing.
+    // Two lines because one utterance means two things: what the classifier
+    // calls it, and what the window grammar would do with it. Showing only
+    // the first is how "the template matched but it says Dictation" becomes
+    // confusing.
     // Enter mode consults the window-manager grammar before buffering, so
     // reporting only `classify` here would say "Dictation" for an utterance
     // that actually navigates. An instrument that does not match the thing it
@@ -170,10 +171,10 @@ fn probe_one(
     };
     match verdict {
         Some(crate::commands::VoiceCommand::Dictation) | None if navigates => {
-            println!("  => modo Enter:   navega (comando de janela, não vira texto)")
+            println!("  => classificação: navega (comando de janela, não vira texto)")
         }
-        Some(cmd) => println!("  => modo Enter:   {cmd:?}"),
-        None => println!("  => modo Enter:   (nada)"),
+        Some(cmd) => println!("  => classificação: {cmd:?}"),
+        None => println!("  => classificação: (nada)"),
     }
     let (tx, rx) = crossbeam_channel::unbounded();
     let mut pending = None;
@@ -192,9 +193,9 @@ fn probe_one(
     let mut parts = would_run;
     parts.extend(confirmations);
     if parts.is_empty() {
-        println!("  => modo Command: (nada)");
+        println!("  => janelas:       (nada)");
     } else {
-        println!("  => modo Command: {}", parts.join(" | "));
+        println!("  => janelas:       {}", parts.join(" | "));
     }
     println!();
 }

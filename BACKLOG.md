@@ -403,11 +403,35 @@ O prefixo não substitui o filtro de contagem de palavras de M1.1 — ele age an
 
 **Decisão de implementação:** o prefixo é controlado por `require_prefix` (default `false`) na seção do idioma. Ligado por config, não por presença de palavras na lista — o default com prefixo obrigatório quebraria o aceite de M1.3 ("rodar sem config funciona igual a hoje", onde "câmbio" sozinho envia). Com `require_prefix = false`, o prefixo é aceito mas não exigido.
 
-### M4.2 — Modo `Command` ✅ `57b3f9e`
+### M4.2 — Modo `Command` ✅ `57b3f9e`, depois **absorvido** — ver M4.5
 
 `TranscribeMode` já tem `Input`, `Translate` e `Enter`. Adicionar `Command`, onde tudo é interpretado como comando de WM e nada é ditado — sem precisar do prefixo.
 
 **Aceite:** o seletor de modo do overlay lista os quatro. Em `Command`, `type_text` nunca é chamado.
+
+**Este item foi entregue e depois desfeito, e a razão está em M4.5.** A garantia que ele existia para dar — comando de janela nunca vira texto — sobreviveu à remoção do modo, e tem teste próprio.
+
+### M4.5 — Dois modos, não quatro ✅ `d9ee584`
+
+Quatro modos, e dois pares deles eram a mesma coisa de roupa diferente:
+
+- `Input` digitava cada fala; `Enter` acumulava até a palavra de envio. Mesma fonte, mesma gramática, diferença de um comando.
+- `Command` despachava comando de janela; `Enter`, depois que as duas gramáticas foram unidas, já despacha.
+
+Sair de uma mensagem meio composta para trocar de modo, mover uma janela e voltar é fricção que o gate de contagem de palavras torna desnecessária: comando tem poucas palavras, linha ditada não tem, e a gramática recusa o que não está literalmente nela.
+
+Sobram os dois que se distinguem por algo real — **de quem é a voz**:
+
+| Modo | O que faz |
+|---|---|
+| `Enter` | seu microfone: junta o texto, e navega quando a fala é um comando |
+| `Translate` | áudio do sistema: legenda e traduz |
+
+O botão do overlay alterna entre dois em vez de ciclar por quatro, onde dois eram becos sem saída que custavam uma fala cada.
+
+`from_name` ainda resolve `input` e `command`, para o modo que os absorveu: config escrito antes da fusão continua valendo, e quem falar "modo comando" por hábito recebe o modo que roda esses comandos, não um erro que exige ler o changelog.
+
+**Aceite:** `type_text` nunca é chamado para uma fala que a gramática de janelas reconheceu, e o buffer de composição nunca a recebe — a garantia de M4.2 sem o modo de M4.2. Toda fala longa continua virando texto.
 
 ### M4.3 — Política única de confirmação ✅ `976b8c8`
 

@@ -18,14 +18,9 @@ fn system_audio_mode_listens_to_both_sides() {
 #[test]
 fn dictation_modes_never_capture_system_audio() {
     // Otherwise the machine's own output gets typed into whatever has focus.
-    for mode in [
-        TranscribeMode::Input,
-        TranscribeMode::Enter,
-        TranscribeMode::Command,
-    ] {
-        let sources: Vec<Source> = streams_for(mode).into_iter().map(|(s, _)| s).collect();
-        assert_eq!(sources, vec![Source::Mic], "{mode:?} listens too widely");
-    }
+    let mode = TranscribeMode::Enter;
+    let sources: Vec<Source> = streams_for(mode).into_iter().map(|(s, _)| s).collect();
+    assert_eq!(sources, vec![Source::Mic], "{mode:?} listens too widely");
 }
 
 #[test]
@@ -47,11 +42,7 @@ fn composing_modes_never_ask_for_a_translation() {
     // where a second rendering under every line is something to read past on
     // the way to the text you are actually writing. The mode decides, not the
     // detected language.
-    for mode in [
-        TranscribeMode::Input,
-        TranscribeMode::Enter,
-        TranscribeMode::Command,
-    ] {
+    for mode in [TranscribeMode::Enter] {
         for (source, translate) in streams_for(mode) {
             assert!(!translate, "{mode:?} would translate its {source:?} stream");
         }
@@ -110,7 +101,6 @@ fn the_button_and_the_spoken_command_open_the_same_session() {
 fn a_session_started_by_the_button_is_attributed_to_the_modes_own_voice() {
     assert_eq!(primary_source(TranscribeMode::Translate), Source::System);
     assert_eq!(primary_source(TranscribeMode::Enter), Source::Mic);
-    assert_eq!(primary_source(TranscribeMode::Command), Source::Mic);
 }
 
 #[test]
@@ -123,7 +113,7 @@ fn every_mode_is_reachable_by_voice() {
         let vocab = config.vocab(lang).expect("language ships a vocabulary");
         let named: std::collections::HashSet<&str> =
             vocab.modes.values().map(String::as_str).collect();
-        for mode in ["input", "translate", "enter", "command"] {
+        for mode in ["enter", "translate"] {
             assert!(
                 named.contains(mode),
                 "{lang} has no spoken phrase for {mode} mode"
@@ -142,9 +132,17 @@ fn every_mode_is_reachable_by_voice() {
 fn a_spoken_mode_phrase_classifies_as_a_mode_switch() {
     let config = config::Config::embedded();
     let vocab = config.vocab("pt").unwrap();
+    // "modo comando" still resolves — to the mode that absorbed it. Someone
+    // who says it out of habit gets the mode that runs those commands rather
+    // than an error they would have to read a changelog to understand.
     let cmd = commands::classify("modo comando", vocab, config.threshold());
     assert!(
-        matches!(cmd, Some(commands::VoiceCommand::SetMode(ref m)) if m == "command"),
+        matches!(cmd, Some(commands::VoiceCommand::SetMode(ref m)) if m == "enter"),
+        "got {cmd:?}"
+    );
+    let cmd = commands::classify("modo reunião", vocab, config.threshold());
+    assert!(
+        matches!(cmd, Some(commands::VoiceCommand::SetMode(ref m)) if m == "translate"),
         "got {cmd:?}"
     );
 }
