@@ -311,7 +311,11 @@ fn dispatch_args(
 
 /// A tab title is arbitrary text that changes with whatever page is loaded,
 /// so it earns the same hard bar the window resolver gives window titles.
-const TAB_THRESHOLD: f64 = 0.90;
+///
+/// Visible to the probe so the diagnostic scores tabs against the same bar
+/// dispatch does — a probe with its own number would answer a question nobody
+/// asked.
+pub(crate) const TAB_THRESHOLD: f64 = 0.90;
 
 /// Raise a browser tab, then hand back the dispatch that raises its window.
 ///

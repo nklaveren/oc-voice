@@ -8,7 +8,7 @@ authors = ["Nicolas Van Klaveren"]
 readme = "README.md"
 keywords = ["voice", "dictation", "whisper", "hyprland", "speech-recognition"]
 categories = ["command-line-utilities", "multimedia::audio"]
-# repository: add the GitHub URL when the repo is published
+repository = "https://github.com/nklaveren/oc-voice"
 
 [[bin]]
 name = "oc-voice"

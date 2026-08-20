@@ -142,8 +142,29 @@ fn probe_one(
 
     // Bare target probe (what "foca o X" would find).
     let windows = target::live_windows(runner);
-    if let Some(t) = target::resolve(spoken, &vocab.targets, &windows, threshold) {
-        println!("  como alvo    {} ({:.2})", t.class, t.score);
+    match target::resolve(spoken, &vocab.targets, &windows, threshold) {
+        Some(t) => println!("  como alvo    {} ({:.2})", t.class, t.score),
+        None => println!("  como alvo    nenhuma janela ({} abertas)", windows.len()),
+    }
+
+    // And the half the window list cannot see. "Abre o Outlook" matched its
+    // template at 1.00 and dispatched nothing, and the probe reported only
+    // `(nada)` — every other class printed its verdict, and the one holding
+    // the answer printed nothing at all. Silence here is what made a config
+    // flag look like a broken command.
+    match config.browser_port() {
+        None => println!("  como aba     desligado — defina debug_port em commands.toml"),
+        Some(port) => {
+            let live = crate::wm::tabs::live_tabs(runner, port);
+            if live.is_empty() {
+                println!("  como aba     porta {port} não respondeu");
+            } else {
+                match crate::wm::tabs::resolve(spoken, &live, crate::wm::dispatch::TAB_THRESHOLD) {
+                    Some(t) => println!("  como aba     {} ({} abas)", t.title, live.len()),
+                    None => println!("  como aba     nenhuma das {} abas casou", live.len()),
+                }
+            }
+        }
     }
 
     // Two lines because one utterance means two things: what the classifier

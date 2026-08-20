@@ -132,10 +132,16 @@ Chromium exposes its tabs over the DevTools endpoint:
 debug_port = 9222   # launch the browser with --remote-debugging-port=9222
 ```
 
-Off by default: nobody should have a debugging port opened on their behalf. A
-closed port is the normal case, not a failure — the target simply falls back
+Off by default: nobody should have a debugging port opened on their behalf.
+oc-voice never opens one — it only reads a port you already opened, and when
+nothing is listening the request fails immediately and the target falls back
 to the window list. Windows are always tried first, because a real window is a
 stronger answer than a page inside one.
+
+The cost of leaving it off is that a target living in a tab matches its
+template perfectly and then dispatches nothing, which reads exactly like a
+broken command. `just probe` names the reason: `como aba  desligado — defina
+debug_port em commands.toml`.
 
 ### Where the overlay sits
 
