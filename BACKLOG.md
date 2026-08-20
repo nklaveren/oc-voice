@@ -476,29 +476,30 @@ Hoje o overlay mostra as últimas quatro linhas e esquece o resto. Para acompanh
 - Comando (voz e UI) para **iniciar** e **encerrar** uma sessão.
 - Enquanto aberta, toda transcrição final é acumulada com timestamp relativo ao início.
 - Ao encerrar, grava um arquivo em `~/.local/share/oc-voice/sessions/<data-hora>.md` com: início, fim, duração, idioma detectado, e a transcrição corrida com marcas de tempo.
+- **O arquivo guarda a transcrição original, no idioma falado.** A tradução de M7.2 existe só na tela; ver lá o motivo.
 - O overlay mostra que a sessão está aberta e há quanto tempo — gravar sem indicação visível é inaceitável.
 
 Isso é ortogonal à fonte: deve funcionar gravando o microfone (uma ideia falada sozinho) ou o áudio do sistema (a reunião).
 
 **Aceite:** abrir sessão, falar em três momentos separados, encerrar, e o arquivo conter as três falas com timestamps plausíveis. Sessão aberta sem indicação no overlay reprova o item.
 
-### M7.2 — Tradução que traduz
+### M7.2 — Tradução para leitura, com o original preservado
 
-**O whisper não faz o que este modo promete.** Ele tem duas tarefas: `transcribe`, que devolve o idioma da fonte, e `translate`, que devolve **inglês, e só inglês** — não existe alvo configurável. O parâmetro `language` é a dica da *fonte*, não o destino, e o comentário do `whisper-rs` que diz o contrário está errado.
+**O whisper não faz o que o modo prometia.** Ele tem duas tarefas: `transcribe`, que devolve o idioma da fonte, e `translate`, que devolve **inglês, e só inglês** — não existe alvo configurável. O `language` é dica da *fonte*, não destino, e o comentário do `whisper-rs` que afirma o contrário está errado. Numa reunião em inglês, `translate` é operação nula; e com um idioma fixo na UI o whisper era instruído a decodificar inglês como português, devolvendo ruído (`.`, `O que é?`). Corrigido em `7716073`: em Translate a fonte é sempre detectada.
 
-Consequência prática, e é a que o usuário encontrou: numa reunião em inglês, `translate` é uma operação nula. Pior, com um idioma fixo selecionado na UI o whisper era instruído a decodificar inglês como português e devolvia ruído (`.`, `O que é?`). Corrigido: em modo Translate a fonte é sempre detectada.
+Para entrada em qualquer idioma e leitura em pt-BR é preciso um segundo estágio depois do ASR.
 
-Para ter inglês → português é preciso um segundo estágio, depois do ASR. Opções, com o custo real:
+**A decisão de projeto que torna isso viável:** a tradução vai **só para a UI**. O registro da sessão (M7.1) guarda a **transcrição original**, sempre.
 
-| Caminho | Custo | Observação |
-|---|---|---|
-| Modelo local de tradução (NLLB, M2M100, Opus-MT) | mais um modelo na GPU | offline, coerente com o projeto; Opus-MT en→pt é pequeno |
-| API remota | quebra a premissa "nada sai da máquina" | precisa ser opt-in explícito |
-| Nenhum | zero | assumir que Translate é "áudio do sistema → inglês" e nomear assim |
+Isso não é detalhe de implementação, é o que mantém o sistema honesto. O overlay é auxílio de leitura ao vivo: uma tradução ruim ali custa um mal-entendido de meio segundo. O arquivo da sessão é o **registro do que as pessoas disseram**; uma tradução ruim ali é uma ata falsificada, e ninguém consegue auditar depois porque o original não existe mais. Original é autoridade, tradução é conveniência.
 
-A terceira linha é o que está no código agora, e o rótulo do overlay foi corrigido para dizer isso: `System Audio → EN`. Prometer tradução que não acontece é pior que não ter o modo.
+Consequência prática: a qualidade da tradução deixa de ser crítica, e a latência passa a ser o único requisito real — porque legenda ao vivo precisa acompanhar a fala.
 
-**Aceite:** ou o modo traduz de fato para o idioma escolhido, ou o nome e o rótulo descrevem exatamente o que ele faz. Não existe estado intermediário aceitável.
+**Caminho técnico.** [`ct2rs`](https://crates.io/crates/ct2rs) (0.9.19) dá binding Rust para o CTranslate2, que já está em nixpkgs (`ctranslate2-4.7.1`). Modelos [OPUS-MT](https://opennmt.net/CTranslate2/guides/opus_mt.html) são Marian e convertem direto para o formato CT2. Sem servidor, sem processo extra — ao contrário do `libretranslate`, que está empacotado mas arrasta um stack Python de ML inteiro (`wandb` incluído) e não vale o closure.
+
+Não medido ainda, e é a primeira coisa a fazer antes de escrever código: **tamanho do modelo en→pt e latência por segmento na CPU**. O orçamento é o mesmo do resto do projeto — se não couber abaixo de ~300 ms por segmento, legenda ao vivo não fecha e a tradução vira etapa de fim de sessão, aplicada uma vez sobre o texto inteiro (onde latência não importa e o contexto completo melhora a qualidade).
+
+**Aceite:** com a reunião em inglês, o overlay mostra pt-BR e o arquivo da sessão contém o inglês original, ambos verificáveis no mesmo teste. Latência de tradução medida e registrada aqui, como M5.4 fez para o ASR. Se o número inviabilizar legenda ao vivo, o item é fechado com tradução em lote no fim da sessão e o motivo escrito.
 
 ### M7.3 — Separar fonte de tarefa
 
