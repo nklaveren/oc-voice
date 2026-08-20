@@ -90,12 +90,64 @@ impl Default for Segmentation {
     }
 }
 
+/// A user's partial override of one profile.
+///
+/// Every field is optional on purpose. Deserializing straight into
+/// `Segmentation` would let `hang_ms = 400` under `[segmentation.subtitle]`
+/// silently reset `max_seconds` to the generic default of 20 — reintroducing
+/// the wall-of-text bug the subtitle profile exists to prevent. A patch only
+/// changes what it names.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct SegmentationPatch {
+    hang_ms: Option<u64>,
+    max_seconds: Option<u64>,
+    partial_every_ms: Option<u64>,
+}
+
+impl SegmentationPatch {
+    fn apply_to(&self, base: &mut Segmentation) {
+        if let Some(v) = self.hang_ms {
+            base.hang_ms = v;
+        }
+        if let Some(v) = self.max_seconds {
+            base.max_seconds = v;
+        }
+        if let Some(v) = self.partial_every_ms {
+            base.partial_every_ms = v;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct SegmentationSetPatch {
+    #[serde(default)]
+    dictation: SegmentationPatch,
+    #[serde(default)]
+    subtitle: SegmentationPatch,
+}
+
+impl SegmentationSetPatch {
+    fn apply_to(&self, base: &mut SegmentationSet) {
+        self.dictation.apply_to(&mut base.dictation);
+        self.subtitle.apply_to(&mut base.subtitle);
+    }
+}
+
+/// Where the floating overlay lands.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct OverlayCfg {
+    /// `middle`, `left`, `right`, `focused`, or a monitor name like `DP-1`.
+    pub monitor: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 struct RawConfig {
     #[serde(default)]
     matching: Matching,
     #[serde(default)]
-    segmentation: SegmentationSet,
+    segmentation: SegmentationSetPatch,
+    #[serde(default)]
+    overlay: OverlayCfg,
     #[serde(flatten)]
     languages: HashMap<String, LangVocab>,
 }
@@ -138,10 +190,14 @@ impl Default for SegmentationSet {
 pub struct Config {
     threshold: f64,
     segmentation: SegmentationSet,
+    overlay_monitor: String,
     confirm_below: f64,
     destructive: Vec<String>,
     languages: HashMap<String, LangVocab>,
 }
+
+/// Which monitor the overlay is pinned to when nothing says otherwise.
+pub const DEFAULT_OVERLAY_MONITOR: &str = "middle";
 
 impl Config {
     /// Embedded default only — what tests and `--no-config` runs see.
@@ -171,6 +227,13 @@ impl Config {
                 if let Some(d) = user.matching.destructive {
                     base.destructive = d;
                 }
+                // Without this the documented "tune hang_ms without
+                // recompiling" was a lie: every other field merged and this
+                // one was silently dropped.
+                user.segmentation.apply_to(&mut base.segmentation);
+                if let Some(m) = user.overlay.monitor {
+                    base.overlay_monitor = m;
+                }
                 for (lang, vocab) in user.languages {
                     base.languages.insert(lang, vocab);
                 }
@@ -184,12 +247,18 @@ impl Config {
     }
 
     fn from_raw(raw: RawConfig) -> Self {
+        let mut segmentation = SegmentationSet::default();
+        raw.segmentation.apply_to(&mut segmentation);
         Config {
             threshold: raw
                 .matching
                 .threshold
                 .unwrap_or(crate::commands::matcher::DEFAULT_THRESHOLD),
-            segmentation: raw.segmentation,
+            segmentation,
+            overlay_monitor: raw
+                .overlay
+                .monitor
+                .unwrap_or_else(|| DEFAULT_OVERLAY_MONITOR.to_string()),
             confirm_below: raw.matching.confirm_below.unwrap_or(0.9),
             destructive: raw
                 .matching
@@ -201,6 +270,11 @@ impl Config {
 
     pub fn threshold(&self) -> f64 {
         self.threshold
+    }
+
+    /// Which monitor the overlay should be pinned to.
+    pub fn overlay_monitor(&self) -> &str {
+        &self.overlay_monitor
     }
 
     /// Segmentation profile for a mode: following others, or speaking yourself.

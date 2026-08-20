@@ -10,6 +10,31 @@
 [matching]
 threshold = 0.82
 
+# Where the floating overlay lands. "middle" | "left" | "right" | "focused",
+# or a connector name such as "DP-1". Monitors are ordered by their global x,
+# left to right — not by the order hyprctl reports them.
+[overlay]
+monitor = "middle"
+
+# How the VAD closes a segment. Override either profile, or single fields of
+# one, in ~/.config/oc-voice/commands.toml; unnamed fields keep these values.
+#
+#   [segmentation.subtitle]
+#   hang_ms = 400
+#
+# dictation: speaking yourself, where thinking pauses are long.
+# subtitle:  following a meeting, where a pause usually means someone else is
+#            about to speak — closing on it keeps one voice per segment.
+[segmentation.dictation]
+hang_ms = 960
+max_seconds = 20
+partial_every_ms = 900
+
+[segmentation.subtitle]
+hang_ms = 320
+max_seconds = 8
+partial_every_ms = 700
+
 [pt]
 prefix = ["computador"]
 send_to = ["enviar para", "envia para", "enviar pelo", "envia pelo", "enviar via", "envia via", "enviar pro", "envia pro", "manda para", "manda pelo", "manda via", "manda pro"]

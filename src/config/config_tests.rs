@@ -149,3 +149,62 @@ fn user_section_replaces_embedded_language() {
     assert!(es.send.iter().any(|w| w == "listo"));
     assert!(es.cancel.is_empty());
 }
+
+#[test]
+fn a_partial_segmentation_override_keeps_the_other_fields() {
+    // The trap this guards: deserializing straight into `Segmentation` made
+    // `hang_ms = 400` under [segmentation.subtitle] silently reset
+    // max_seconds to the generic default of 20 — the wall-of-text bug that
+    // the subtitle profile exists to prevent, reappearing from a one-line
+    // tweak that looks harmless.
+    let raw: RawConfig = toml::from_str(
+        r#"
+        [segmentation.subtitle]
+        hang_ms = 400
+        "#,
+    )
+    .expect("partial override parses");
+
+    let mut set = SegmentationSet::default();
+    let before = set.clone();
+    raw.segmentation.apply_to(&mut set);
+
+    assert_eq!(set.subtitle.hang_ms, 400, "the named field changes");
+    assert_eq!(
+        set.subtitle.max_seconds, before.subtitle.max_seconds,
+        "an unnamed field must not fall back to the generic default"
+    );
+    assert_eq!(
+        set.subtitle.partial_every_ms,
+        before.subtitle.partial_every_ms
+    );
+    assert_eq!(
+        set.dictation.hang_ms, before.dictation.hang_ms,
+        "the untouched profile stays untouched"
+    );
+}
+
+#[test]
+fn the_shipped_profiles_keep_meetings_phrase_sized() {
+    // These numbers are the fix for segments running to the cap and mixing
+    // speakers; a regression here is a regression in the meeting UI.
+    let c = Config::embedded();
+    let sub = c.segmentation(true);
+    let dict = c.segmentation(false);
+    assert!(
+        sub.hang_ms < dict.hang_ms,
+        "following someone must close faster than dictating"
+    );
+    assert!(
+        sub.max_seconds < dict.max_seconds,
+        "a subtitle must not be allowed to run as long as a dictation"
+    );
+}
+
+#[test]
+fn the_overlay_monitor_defaults_to_the_middle_one() {
+    assert_eq!(
+        Config::embedded().overlay_monitor(),
+        DEFAULT_OVERLAY_MONITOR
+    );
+}

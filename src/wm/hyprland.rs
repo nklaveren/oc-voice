@@ -29,13 +29,14 @@ pub fn focus_address_and_type(runner: &Arc<dyn CommandRunner>, address: &str, te
 /// window that was already floating tiled it instead — exactly the failure
 /// this function exists to prevent. State is read from `hyprctl clients -j`
 /// and only the missing half is applied, then re-checked.
-pub fn try_hyprland_float(runner: Arc<dyn CommandRunner>) {
+pub fn try_hyprland_float(runner: Arc<dyn CommandRunner>, want_monitor: String) {
     std::thread::spawn(move || {
         if runner.output("hyprctl", &["version"]).is_err() {
             return;
         }
 
-        let monitor_info = hyprctl_primary_monitor_info(&runner);
+        let monitors = hyprctl_monitors(&runner);
+        let target = pick_monitor(&monitors, &want_monitor).cloned();
         std::thread::sleep(Duration::from_millis(300));
 
         for attempt in 0..25 {
@@ -47,8 +48,8 @@ pub fn try_hyprland_float(runner: Arc<dyn CommandRunner>) {
                     std::thread::sleep(Duration::from_millis(120));
                     if let Some(after) = overlay_state(&runner) {
                         if after.floating && after.pinned {
-                            if let Some((w, h, scale)) = monitor_info {
-                                position_overlay(&runner, w, h, scale);
+                            if let Some(ref mon) = target {
+                                position_overlay(&runner, mon);
                             }
                             info!("overlay floating and pinned");
                             return;
@@ -112,32 +113,115 @@ fn apply_float_and_pin(runner: &Arc<dyn CommandRunner>, state: &OverlayState) {
     }
 }
 
-/// Bottom-centre of the primary monitor, in logical pixels.
-fn position_overlay(runner: &Arc<dyn CommandRunner>, mon_w: i64, mon_h: i64, scale: f64) {
-    const WIN_W: f64 = 900.0;
-    const WIN_H: f64 = 350.0;
-    let logical_w = mon_w as f64 / scale;
-    let logical_h = mon_h as f64 / scale;
-    let x = ((logical_w - WIN_W) / 2.0) as i64;
-    let y = (logical_h - WIN_H - 60.0) as i64;
+/// One monitor as Hyprland reports it. `x`/`y` are the monitor's origin in
+/// the **global layout**, already in logical pixels; `width`/`height` are the
+/// mode's physical pixels, which is why they get divided by `scale`.
+#[derive(Debug, Clone, PartialEq)]
+struct Monitor {
+    name: String,
+    x: i64,
+    y: i64,
+    width: i64,
+    height: i64,
+    scale: f64,
+    focused: bool,
+}
+
+impl Monitor {
+    fn logical_size(&self) -> (f64, f64) {
+        (
+            self.width as f64 / self.scale,
+            self.height as f64 / self.scale,
+        )
+    }
+}
+
+/// Gap between the overlay and the bottom edge of its monitor.
+const BOTTOM_MARGIN: f64 = 60.0;
+const WIN_W: f64 = 900.0;
+const WIN_H: f64 = 350.0;
+
+/// Bottom-centre of the chosen monitor, in **global** layout coordinates.
+///
+/// The previous version computed monitor-local coordinates and handed them to
+/// `movewindowpixel exact`, which is global. On a single-monitor setup those
+/// coincide; on this three-monitor layout it put the overlay on a different
+/// screen than the one it measured.
+fn position_overlay(runner: &Arc<dyn CommandRunner>, mon: &Monitor) {
+    let (logical_w, logical_h) = mon.logical_size();
+    let x = mon.x + ((logical_w - WIN_W) / 2.0).max(0.0) as i64;
+    let y = mon.y + (logical_h - WIN_H - BOTTOM_MARGIN).max(0.0) as i64;
     // Both calls name the window explicitly: `resizeactive` acted on whatever
     // had focus, which after a moment is usually not the overlay.
     let size = format!("exact {} {},class:^(oc-voice)$", WIN_W as i64, WIN_H as i64);
     let _ = runner.output("hyprctl", &["dispatch", "resizewindowpixel", &size]);
     let pos = format!("exact {x} {y},class:^(oc-voice)$");
     let _ = runner.output("hyprctl", &["dispatch", "movewindowpixel", &pos]);
-    info!(x, y, scale, "overlay positioned");
+    info!(monitor = %mon.name, x, y, scale = mon.scale, "overlay positioned");
 }
 
-fn hyprctl_primary_monitor_info(runner: &Arc<dyn CommandRunner>) -> Option<(i64, i64, f64)> {
-    let output = runner.output("hyprctl", &["monitors", "-j"]).ok()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = serde_json::from_str(&stdout).ok()?;
-    let mon = json.as_array()?.first()?;
-    let w = mon.get("width")?.as_i64()?;
-    let h = mon.get("height")?.as_i64()?;
-    let scale = mon.get("scale")?.as_f64().unwrap_or(1.0);
-    Some((w, h, scale))
+fn hyprctl_monitors(runner: &Arc<dyn CommandRunner>) -> Vec<Monitor> {
+    let Ok(output) = runner.output("hyprctl", &["monitors", "-j"]) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return Vec::new();
+    };
+    json.as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    Some(Monitor {
+                        name: m.get("name")?.as_str()?.to_string(),
+                        x: m.get("x")?.as_i64()?,
+                        y: m.get("y")?.as_i64()?,
+                        width: m.get("width")?.as_i64()?,
+                        height: m.get("height")?.as_i64()?,
+                        scale: m.get("scale").and_then(|v| v.as_f64()).unwrap_or(1.0),
+                        focused: m.get("focused").and_then(|v| v.as_bool()).unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Resolve `middle` / `left` / `right` / `focused` / a monitor name against
+/// the live layout, ordered left to right by their global `x`.
+///
+/// `hyprctl monitors` returns connector order, not spatial order — taking the
+/// first entry gave the laptop panel regardless of where it sat on the desk.
+fn pick_monitor<'a>(monitors: &'a [Monitor], want: &str) -> Option<&'a Monitor> {
+    if monitors.is_empty() {
+        return None;
+    }
+    let mut ordered: Vec<&Monitor> = monitors.iter().collect();
+    ordered.sort_by_key(|m| m.x);
+
+    match want.trim().to_lowercase().as_str() {
+        "left" => ordered.first().copied(),
+        "right" => ordered.last().copied(),
+        // With an even count there is no true middle; the right-of-centre one
+        // is chosen so a two-monitor desk gets the external screen, not the
+        // laptop panel that usually sits on the left.
+        "middle" | "center" | "centre" | "meio" | "centro" => {
+            ordered.get(ordered.len() / 2).copied()
+        }
+        "focused" | "active" => monitors
+            .iter()
+            .find(|m| m.focused)
+            .or_else(|| ordered.get(ordered.len() / 2).copied()),
+        name => monitors
+            .iter()
+            .find(|m| m.name.eq_ignore_ascii_case(name))
+            .or_else(|| {
+                warn!(
+                    monitor = name,
+                    "unknown monitor in [overlay]; using the middle one"
+                );
+                ordered.get(ordered.len() / 2).copied()
+            }),
+    }
 }
 
 #[cfg(test)]
@@ -195,13 +279,36 @@ mod tests {
         assert!(!found.pinned);
     }
 
+    fn mon(name: &str, x: i64, y: i64, w: i64, h: i64, scale: f64) -> Monitor {
+        Monitor {
+            name: name.to_string(),
+            x,
+            y,
+            width: w,
+            height: h,
+            scale,
+            focused: false,
+        }
+    }
+
+    /// The real desk this was debugged against: laptop left, LG ultrawide in
+    /// the middle, Samsung far right — reported by hyprctl in connector
+    /// order, which is not left-to-right order.
+    fn desk() -> Vec<Monitor> {
+        vec![
+            mon("eDP-1", 0, 576, 2560, 1440, 1.67),
+            mon("DP-1", 4976, 360, 1920, 1080, 1.0),
+            mon("HDMI-A-1", 1536, 0, 3440, 1440, 1.0),
+        ]
+    }
+
     #[test]
     fn positioning_names_the_window_instead_of_acting_on_the_focused_one() {
         // resizeactive hit whatever had focus, which after a moment is
         // usually not the overlay.
         let fake = Arc::new(FakeRunner::new(b"[]".to_vec()));
         let runner: Arc<dyn CommandRunner> = fake.clone();
-        position_overlay(&runner, 2560, 1440, 1.0);
+        position_overlay(&runner, &mon("DP-1", 0, 0, 2560, 1440, 1.0));
         let calls = fake.calls();
         assert!(!calls
             .iter()
@@ -209,6 +316,68 @@ mod tests {
         assert!(calls
             .iter()
             .all(|(_, a)| a.iter().any(|s| s.contains("class:^(oc-voice)$"))));
+    }
+
+    #[test]
+    fn the_middle_monitor_is_spatial_not_the_first_reported() {
+        // The bug: `.first()` on hyprctl's array picked the laptop panel,
+        // which sits on the left, and called it primary.
+        let desk = desk();
+        assert_eq!(pick_monitor(&desk, "middle").unwrap().name, "HDMI-A-1");
+        assert_eq!(pick_monitor(&desk, "left").unwrap().name, "eDP-1");
+        assert_eq!(pick_monitor(&desk, "right").unwrap().name, "DP-1");
+        // Spoken/Portuguese spellings resolve the same way.
+        assert_eq!(pick_monitor(&desk, "meio").unwrap().name, "HDMI-A-1");
+        // An explicit name wins, and an unknown one falls back rather than
+        // leaving the overlay wherever Hyprland dropped it.
+        assert_eq!(pick_monitor(&desk, "eDP-1").unwrap().name, "eDP-1");
+        assert_eq!(pick_monitor(&desk, "DP-9").unwrap().name, "HDMI-A-1");
+        assert!(pick_monitor(&[], "middle").is_none());
+    }
+
+    #[test]
+    fn the_overlay_lands_inside_the_monitor_it_was_measured_against() {
+        // The second half of the bug: monitor-local coordinates were passed
+        // to movewindowpixel, which is global. On this desk that put a window
+        // measured for the LG onto the laptop.
+        let desk = desk();
+        let target = pick_monitor(&desk, "middle").unwrap();
+        let fake = Arc::new(FakeRunner::new(b"[]".to_vec()));
+        let runner: Arc<dyn CommandRunner> = fake.clone();
+        position_overlay(&runner, target);
+
+        let pos = fake
+            .calls()
+            .into_iter()
+            .find(|(_, a)| a.contains(&"movewindowpixel".to_string()))
+            .expect("a move was dispatched");
+        let arg = pos.1.last().unwrap().clone();
+        let nums: Vec<i64> = arg
+            .trim_start_matches("exact ")
+            .split(',')
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .map(|n| n.parse().unwrap())
+            .collect();
+        let (x, y) = (nums[0], nums[1]);
+
+        let (lw, lh) = target.logical_size();
+        assert!(
+            x >= target.x && x + WIN_W as i64 <= target.x + lw as i64,
+            "x={x} is outside {}..{}",
+            target.x,
+            target.x + lw as i64
+        );
+        assert!(
+            y >= target.y && y + WIN_H as i64 <= target.y + lh as i64,
+            "y={y} is outside {}..{}",
+            target.y,
+            target.y + lh as i64
+        );
+        // Bottom-centre, not wherever it fits.
+        assert_eq!(x, target.x + ((lw - WIN_W) / 2.0) as i64);
+        assert_eq!(y, target.y + (lh - WIN_H - BOTTOM_MARGIN) as i64);
     }
 
     #[test]

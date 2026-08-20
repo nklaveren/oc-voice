@@ -29,7 +29,7 @@ pub fn run_overlay(
         ..Default::default()
     };
 
-    try_hyprland_float(runner);
+    try_hyprland_float(runner, config.overlay_monitor().to_string());
 
     eframe::run_native(
         "oc-voice",
@@ -59,6 +59,20 @@ struct OverlayApp {
 }
 
 const LANGUAGES: &[&str] = &["auto", "pt", "en", "es", "fr", "de", "ja", "zh"];
+
+/// Vertical space reserved for the control row, claimed before the scrollback
+/// takes what remains.
+const CONTROLS_HEIGHT: f32 = 32.0;
+
+/// How much height the scrollback may occupy.
+///
+/// The invariant: whatever the window height, the row holding the mode button
+/// stays on screen. If the window is too short for both, the scrollback gives
+/// up its space — a transcript with no reachable mode button is a frozen app,
+/// while a one-line transcript is merely cramped.
+fn scroll_height(available: f32, controls: f32) -> f32 {
+    (available - controls).max(0.0)
+}
 
 impl OverlayApp {
     fn new(
@@ -169,9 +183,27 @@ impl eframe::App for OverlayApp {
                 // Scrollback, pinned to the bottom: a meeting produces far
                 // more lines than fit, and the newest must stay visible
                 // without the user chasing it.
+                //
+                // The height is bounded on purpose. `auto_shrink([false,
+                // false])` makes the area claim every remaining pixel, so
+                // anything laid out after it lands past the bottom edge —
+                // which is how the control row and the empty-state hint
+                // vanished, leaving a black rectangle with no way to switch
+                // modes. Reserve the chrome first, give the scroll what's left.
+                // Resolved before the closure borrows `self` for the lines.
+                let hint = if self.finals.is_empty() && self.partial.is_empty() {
+                    Some(match self.send_word() {
+                        Some(w) => format!("[ speak into the mic \u{2014} say \"{w}\" to send ]"),
+                        None => "[ speak into the mic \u{2014} dictation only ]".to_string(),
+                    })
+                } else {
+                    None
+                };
+                let scroll_height = scroll_height(ui.available_height(), CONTROLS_HEIGHT);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .stick_to_bottom(true)
+                    .max_height(scroll_height)
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         for line in &self.finals {
@@ -211,39 +243,21 @@ impl eframe::App for OverlayApp {
                                 .wrap(),
                             );
                         }
+
+                        // The empty state belongs to the scrollback, not below
+                        // it — placed after the area it would be off-screen.
+                        if let Some(hint) = hint {
+                            ui.label(
+                                egui::RichText::new(hint)
+                                    .color(egui::Color32::from_gray(120))
+                                    .italics()
+                                    .size(14.0),
+                            );
+                        }
                     });
 
-                if self.finals.is_empty() && self.partial.is_empty() && self.buffered == 0 {
-                    let hint = match self.send_word() {
-                        Some(w) => {
-                            format!("[ speak into the mic \u{2014} say \"{w}\" to send ]")
-                        }
-                        None => "[ speak into the mic \u{2014} dictation only ]".to_string(),
-                    };
-                    ui.label(
-                        egui::RichText::new(hint)
-                            .color(egui::Color32::from_gray(120))
-                            .italics()
-                            .size(14.0),
-                    );
-                }
-                if self.buffered > 0 {
-                    ui.label(
-                        egui::RichText::new(match self.send_word() {
-                            Some(w) => format!(
-                                "{} line(s) buffered \u{2014} say \"{w}\" to send",
-                                self.buffered
-                            ),
-                            None => format!("{} line(s) buffered", self.buffered),
-                        })
-                        .color(egui::Color32::from_rgb(255, 200, 80))
-                        .size(14.0),
-                    );
-                }
-
-                let remaining = (ui.available_height() - 28.0).max(8.0);
-                ui.add_space(remaining);
-
+                // Control row: always the last thing drawn, always inside the
+                // panel because the scroll area above it is bounded.
                 ui.horizontal(|ui| {
                     if ui.button("\u{2699} Settings").clicked() {
                         self.show_settings = !self.show_settings;
@@ -258,6 +272,20 @@ impl eframe::App for OverlayApp {
                     if ui.button(mode_label).clicked() {
                         let mut s = self.settings.lock().unwrap();
                         s.mode = s.mode.next();
+                    }
+
+                    if self.buffered > 0 {
+                        ui.label(
+                            egui::RichText::new(match self.send_word() {
+                                Some(w) => format!(
+                                    "{} line(s) buffered \u{2014} say \"{w}\" to send",
+                                    self.buffered
+                                ),
+                                None => format!("{} line(s) buffered", self.buffered),
+                            })
+                            .color(egui::Color32::from_rgb(255, 200, 80))
+                            .size(14.0),
+                        );
                     }
                 });
             });
@@ -292,89 +320,5 @@ impl eframe::App for OverlayApp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn app_with_channel() -> (OverlayApp, crossbeam_channel::Sender<TranscriptEvent>) {
-        let (tx, rx) = crossbeam_channel::unbounded();
-        let running = Arc::new(AtomicBool::new(true));
-        let settings = Arc::new(Mutex::new(AppSettings {
-            language: "pt".to_string(),
-            mode: TranscribeMode::Enter,
-            detected_language: None,
-        }));
-        let config = Arc::new(crate::config::Config::embedded());
-        (OverlayApp::new(rx, running, settings, config), tx)
-    }
-
-    #[test]
-    fn mode_button_cycles_through_all_four_modes() {
-        // M4.2: the selector must reach every mode and come back.
-        let start = TranscribeMode::Input;
-        let mut seen = vec![start];
-        let mut m = start;
-        for _ in 0..3 {
-            m = m.next();
-            assert!(!seen.contains(&m), "cycle revisited {m:?} early");
-            seen.push(m);
-        }
-        assert_eq!(m.next(), start, "cycle must close after all four");
-        assert!(seen.contains(&TranscribeMode::Command));
-        assert!(seen.contains(&TranscribeMode::Translate));
-    }
-
-    #[test]
-    fn a_translation_event_reaches_renderable_state() {
-        // This is the test that would have caught shipping M7.2 with the
-        // state wired and the drawing missing: the worker translated, the
-        // event arrived, the field was set, and nothing rendered it.
-        let (mut app, tx) = app_with_channel();
-        tx.send(TranscriptEvent::Final("They should have a parent.".into()))
-            .unwrap();
-        tx.send(TranscriptEvent::Translated("Eles devem ter um pai.".into()))
-            .unwrap();
-        app.drain_events();
-        assert_eq!(
-            app.translated.as_deref(),
-            Some("Eles devem ter um pai."),
-            "translation must survive into the state the UI draws from"
-        );
-        // And the original is still there: translation adds, never replaces.
-        assert!(app
-            .finals
-            .iter()
-            .any(|l| l.contains("They should have a parent.")));
-    }
-
-    #[test]
-    fn a_new_utterance_clears_the_previous_translation() {
-        // Otherwise a stale Portuguese line sits under a fresh English one.
-        let (mut app, tx) = app_with_channel();
-        tx.send(TranscriptEvent::Translated("antiga".into()))
-            .unwrap();
-        tx.send(TranscriptEvent::Final("something new".into()))
-            .unwrap();
-        app.drain_events();
-        assert!(app.translated.is_none());
-    }
-
-    #[test]
-    fn dead_pipeline_sets_failure_state() {
-        // Dropping the sender is what a panicking pipeline thread does: the
-        // overlay must notice instead of looking normal.
-        let (mut app, tx) = app_with_channel();
-        drop(tx);
-        app.drain_events();
-        assert!(app.pipeline_failed);
-    }
-
-    #[test]
-    fn live_pipeline_does_not_set_failure_state() {
-        let (mut app, tx) = app_with_channel();
-        tx.send(TranscriptEvent::Partial("hello".to_string()))
-            .unwrap();
-        app.drain_events();
-        assert!(!app.pipeline_failed);
-        assert_eq!(app.partial, "hello");
-    }
-}
+#[path = "overlay_tests.rs"]
+mod tests;
