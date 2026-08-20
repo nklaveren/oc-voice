@@ -155,6 +155,15 @@ impl SegmentationSetPatch {
     }
 }
 
+/// Chromium's DevTools endpoint, for reaching browser tabs.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct BrowserCfg {
+    /// Port the browser was launched with via `--remote-debugging-port`.
+    /// Absent means the feature is off, which is the default: nobody should
+    /// have a debugging port opened on their behalf.
+    pub debug_port: Option<u16>,
+}
+
 /// Where the floating overlay lands.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct OverlayCfg {
@@ -170,6 +179,8 @@ struct RawConfig {
     segmentation: SegmentationSetPatch,
     #[serde(default)]
     overlay: OverlayCfg,
+    #[serde(default)]
+    browser: BrowserCfg,
     #[serde(flatten)]
     languages: HashMap<String, LangVocab>,
 }
@@ -215,6 +226,7 @@ pub struct Config {
     threshold: f64,
     segmentation: SegmentationSet,
     overlay_monitor: String,
+    browser_port: Option<u16>,
     confirm_below: f64,
     destructive: Vec<String>,
     languages: HashMap<String, LangVocab>,
@@ -258,6 +270,9 @@ impl Config {
                 if let Some(m) = user.overlay.monitor {
                     base.overlay_monitor = m;
                 }
+                if let Some(p) = user.browser.debug_port {
+                    base.browser_port = Some(p);
+                }
                 for (lang, vocab) in user.languages {
                     base.languages.insert(lang, vocab);
                 }
@@ -283,6 +298,7 @@ impl Config {
                 .overlay
                 .monitor
                 .unwrap_or_else(|| DEFAULT_OVERLAY_MONITOR.to_string()),
+            browser_port: raw.browser.debug_port,
             confirm_below: raw.matching.confirm_below.unwrap_or(0.9),
             destructive: raw
                 .matching
@@ -294,6 +310,11 @@ impl Config {
 
     pub fn threshold(&self) -> f64 {
         self.threshold
+    }
+
+    /// The browser's DevTools port, when one is configured.
+    pub fn browser_port(&self) -> Option<u16> {
+        self.browser_port
     }
 
     /// Which monitor the overlay should be pinned to.

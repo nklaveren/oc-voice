@@ -19,6 +19,7 @@ use crate::commands::PendingAction;
 use crate::config::{Config, LangVocab};
 use crate::process::CommandRunner;
 use crate::ui::stdout::emit;
+use crate::wm::tabs;
 use crate::wm::target;
 use crate::TranscriptEvent;
 use crossbeam_channel::Sender;
@@ -257,17 +258,64 @@ fn dispatch_args(
             vec!["dispatch".into(), "focusmonitor".into(), name]
         }
         "focus_window" => {
+            let spoken = slot?;
             let windows = target::live_windows(runner);
-            let resolved = target::resolve(slot?, &vocab.targets, &windows, threshold)?;
-            vec![
-                "dispatch".into(),
-                "focuswindow".into(),
-                format!("address:{}", resolved.address),
-            ]
+            if let Some(resolved) = target::resolve(spoken, &vocab.targets, &windows, threshold) {
+                return Some(vec![
+                    "dispatch".into(),
+                    "focuswindow".into(),
+                    format!("address:{}", resolved.address),
+                ]);
+            }
+            // No window answers to it. Before giving up, ask the browser: a
+            // whole browser is one window to the compositor, so anything kept
+            // in a tab is invisible from here — which is how most people keep
+            // most things. Windows first, because a real window is a stronger
+            // answer than a page inside one.
+            focus_browser_tab(spoken, config, runner)?
         }
         _ => return None,
     };
     Some(args)
+}
+
+/// A tab title is arbitrary text that changes with whatever page is loaded,
+/// so it earns the same hard bar the window resolver gives window titles.
+const TAB_THRESHOLD: f64 = 0.90;
+
+/// Raise a browser tab, then hand back the dispatch that raises its window.
+///
+/// Two halves that compose: the browser brings the tab to the front of
+/// itself, the compositor brings the browser to the front of the screen.
+/// Neither pretends to do the other's job.
+fn focus_browser_tab(
+    spoken: &str,
+    config: &Config,
+    runner: &Arc<dyn CommandRunner>,
+) -> Option<Vec<String>> {
+    let port = config.browser_port()?;
+    let tabs = tabs::live_tabs(runner, port);
+    let tab = tabs::resolve(spoken, &tabs, TAB_THRESHOLD)?;
+    if !tabs::activate(runner, port, tab) {
+        return None;
+    }
+    // The window's title becomes the tab's once it is frontmost, so the
+    // window is found by what we just asked the browser to show. Re-reading
+    // rather than remembering: with two browser windows open, the one holding
+    // this tab is not knowable before the activation happened.
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    let windows = target::live_windows(runner);
+    let owner = windows.iter().find(|w| {
+        let title = matcher::normalize(&w.title);
+        let wanted = matcher::normalize(&tab.title);
+        !wanted.is_empty() && title.contains(&wanted)
+    })?;
+    info!(tab = %tab.title, class = %owner.class, "raised a page inside a window");
+    Some(vec![
+        "dispatch".into(),
+        "focuswindow".into(),
+        format!("address:{}", owner.address),
+    ])
 }
 
 #[cfg(test)]

@@ -49,11 +49,22 @@ pt  janela de direito        -> dispatch movefocus r
 pt  janela de esquerda       -> dispatch movefocus l
 pt  janela de esquerdo       -> dispatch movefocus l
 pt  janela de meio           -> (nada)
+pt  workspace 3              -> dispatch workspace 3
+pt  vai pro workspace 3      -> dispatch workspace 3
+pt  vai para o workspace 3   -> dispatch workspace 3
+pt  vai pra 3                -> dispatch workspace 3
+pt  vai para 3               -> dispatch workspace 3
+pt  área 3                   -> dispatch workspace 3
+pt  espaço 3                 -> dispatch workspace 3
 pt  área de trabalho 3       -> dispatch workspace 3
 pt  leva pra 3               -> dispatch movetoworkspace 3
 pt  leva para 3              -> dispatch movetoworkspace 3
 pt  manda pra 3              -> dispatch movetoworkspace 3
 pt  manda para 3             -> dispatch movetoworkspace 3
+pt  vai pro brave            -> dispatch focuswindow address:0xb1
+pt  vai para o brave         -> dispatch focuswindow address:0xb1
+pt  abre o brave             -> dispatch focuswindow address:0xb1
+pt  mostra o brave           -> dispatch focuswindow address:0xb1
 pt  foca o brave             -> dispatch focuswindow address:0xb1
 pt  foca no brave            -> dispatch focuswindow address:0xb1
 en  close window             -> (confirma)
@@ -82,4 +93,6 @@ en  right window             -> dispatch movefocus r
 en  up window                -> dispatch movefocus u
 en  workspace 3              -> dispatch workspace 3
 en  move to 3                -> dispatch movetoworkspace 3
+en  go to brave              -> dispatch focuswindow address:0xb1
+en  show brave               -> dispatch focuswindow address:0xb1
 en  focus brave              -> dispatch focuswindow address:0xb1

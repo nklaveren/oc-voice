@@ -16,6 +16,16 @@ threshold = 0.82
 [overlay]
 monitor = "middle"
 
+# Alcançar abas do navegador. Um navegador inteiro é UMA janela para o
+# compositor, então qualquer coisa guardada em aba é invisível para
+# `hyprctl clients` — que é como a maioria das pessoas guarda a maioria das
+# coisas. Desligado por padrão: ninguém deve ter uma porta de depuração
+# aberta sem pedir. Para ligar, suba o navegador com
+# `--remote-debugging-port=9222` e descomente:
+#
+#   [browser]
+#   debug_port = 9222
+
 # How the VAD closes a segment. Override either profile, or single fields of
 # one, in ~/.config/oc-voice/commands.toml; unnamed fields keep these values.
 #
@@ -148,6 +158,38 @@ action = "move_focus"
 pattern = "janela de {direcao}"
 action = "move_focus"
 
+# "área de trabalho três" é impronunciável no meio de uma reunião. As formas
+# curtas são as que saem na fala; a longa fica por compatibilidade.
+# "workspace" é dito em inglês no meio da frase em português — é assim que
+# sai na fala, e o vocabulário serve a fala, não à gramática.
+[[pt.templates]]
+pattern = "workspace {numero}"
+action = "workspace"
+
+[[pt.templates]]
+pattern = "vai pro workspace {numero}"
+action = "workspace"
+
+[[pt.templates]]
+pattern = "vai para o workspace {numero}"
+action = "workspace"
+
+[[pt.templates]]
+pattern = "vai pra {numero}"
+action = "workspace"
+
+[[pt.templates]]
+pattern = "vai para {numero}"
+action = "workspace"
+
+[[pt.templates]]
+pattern = "área {numero}"
+action = "workspace"
+
+[[pt.templates]]
+pattern = "espaço {numero}"
+action = "workspace"
+
 [[pt.templates]]
 pattern = "área de trabalho {numero}"
 action = "workspace"
@@ -170,6 +212,23 @@ action = "move_to_workspace"
 [[pt.templates]]
 pattern = "manda para {numero}"
 action = "move_to_workspace"
+
+# "foca o teams" não é como ninguém pede uma janela. Estas são.
+[[pt.templates]]
+pattern = "vai pro {alvo}"
+action = "focus_window"
+
+[[pt.templates]]
+pattern = "vai para o {alvo}"
+action = "focus_window"
+
+[[pt.templates]]
+pattern = "abre o {alvo}"
+action = "focus_window"
+
+[[pt.templates]]
+pattern = "mostra o {alvo}"
+action = "focus_window"
 
 [[pt.templates]]
 pattern = "foca o {alvo}"
@@ -269,6 +328,14 @@ action = "workspace"
 [[en.templates]]
 pattern = "move to {numero}"
 action = "move_to_workspace"
+
+[[en.templates]]
+pattern = "go to {alvo}"
+action = "focus_window"
+
+[[en.templates]]
+pattern = "show {alvo}"
+action = "focus_window"
 
 [[en.templates]]
 pattern = "focus {alvo}"
