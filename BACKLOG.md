@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:30`), a tabela de aliases `resolve_target_alias` (`src/commands/mod.rs:106`) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:84`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:34`), a tabela de aliases `resolve_target_alias` (`src/commands/mod.rs:110`) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:84`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -143,7 +143,7 @@ Hoje existem três lugares que comparam texto falado contra listas fixas, cada u
 
 **Não passa por similaridade:** o texto ditado, que é injetado literal, e nomes de conector de monitor, que ninguém pronuncia.
 
-### M1.1 — Matcher por distância de string
+### M1.1 — Matcher por distância de string ✅ `a7cbc6f`
 
 Um módulo `commands/matcher.rs`: dado o texto falado e um conjunto de candidatos, devolver o melhor match acima de um limiar, ou nada.
 
@@ -151,7 +151,7 @@ A capacidade de **recusar** é o requisito central, não a de acertar. Um autoco
 
 Pipeline, nesta ordem:
 
-1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:91`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
+1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:95`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
 2. **Filtrar por contagem de palavras** — só entram na comparação candidatos com o mesmo número de palavras da fala. Este passo é o que separa comando de ditado, ver medição abaixo.
 3. **Pontuar** com Jaro-Winkler (`strsim`), limiar default 0.82.
 
@@ -196,7 +196,7 @@ Os templates moram no `commands.toml` junto do resto do vocabulário, porque a o
 
 ### M1.2 — Trocar as três comparações pelo matcher
 
-Reescrever `classify` (`src/commands/mod.rs:30`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
+Reescrever `classify` (`src/commands/mod.rs:34`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
 
 Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **string inteira** normalizada. Existe uma guarda de ≤5 palavras sugerindo que frases curtas deveriam passar, mas na prática só a palavra sozinha funciona — "ok câmbio" cai como ditado.
 
@@ -245,7 +245,7 @@ As duas dicas de texto do overlay (`src/ui/overlay.rs`) citam "envia" e "cambio"
 
 ### M2.1 — Matar a tabela de aliases
 
-`resolve_target_alias` ([`src/commands/mod.rs:106`](src/commands/mod.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
+`resolve_target_alias` ([`src/commands/mod.rs:110`](src/commands/mod.rs)) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
 
 Medido nas janelas abertas nesta máquina, **5 dos 7 aliases não encontram nada**:
 

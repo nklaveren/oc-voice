@@ -1,3 +1,7 @@
+// Only tests call the matcher until M1.2 wires it into `classify`.
+#[allow(dead_code)]
+pub mod matcher;
+
 use crate::input::inject::{type_key, type_shift_return, type_text};
 use crate::process::CommandRunner;
 use crate::wm::hyprland::focus_window_and_type;
@@ -88,7 +92,7 @@ pub fn classify(text: &str) -> Option<VoiceCommand> {
 /// Whisper transcribes Portuguese with accents ("câmbio"), but the keyword
 /// tables below are written unaccented. Fold the diacritics pt-BR actually
 /// uses so both spellings land on the same entry.
-fn fold_diacritics(s: &str) -> String {
+pub(crate) fn fold_diacritics(s: &str) -> String {
     s.chars()
         .map(|c| match c {
             'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
