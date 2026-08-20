@@ -10,6 +10,39 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
+/// Print every input device cpal can see and which one capture would pick.
+/// `oc-voice devices` — answers "which mic is it actually using?" without
+/// starting the pipeline.
+pub fn list_devices() {
+    let host = cpal::default_host();
+    println!("host: {}", host.id().name());
+    let default_name = host
+        .default_input_device()
+        .and_then(|d| d.name().ok())
+        .unwrap_or_else(|| "<nenhum>".to_string());
+    match host.input_devices() {
+        Ok(devices) => {
+            println!("\nentradas visíveis ao cpal:");
+            for d in devices {
+                let name = d.name().unwrap_or_else(|_| "?".into());
+                let mark = if name == default_name { "*" } else { " " };
+                match d.default_input_config() {
+                    Ok(c) => println!(
+                        "  {mark} {name}\n      {} Hz, {} canal(is), {:?}",
+                        c.sample_rate().0,
+                        c.channels(),
+                        c.sample_format()
+                    ),
+                    Err(e) => println!("  {mark} {name}\n      [sem config de entrada: {e}]"),
+                }
+            }
+        }
+        Err(e) => println!("não consegui enumerar entradas: {e}"),
+    }
+    println!("\n* = o que `run_capture` usaria (default_input_device)");
+    println!("para trocar, mude a fonte padrão no PipeWire: wpctl set-default <id>");
+}
+
 /// blocking call that keeps mic capture alive until `running` flips.
 pub fn run_capture<P>(producer: P, running: Arc<AtomicBool>) -> Result<()>
 where

@@ -130,12 +130,18 @@ fn main() -> Result<()> {
         .init();
 
     let model_path = std::env::args().nth(1).ok_or_else(|| {
-        anyhow!("usage: oc-voice <path-to-ggml-model.bin> | oc-voice probe [lang]")
+        anyhow!("usage: oc-voice <model.bin> | oc-voice probe [lang] | oc-voice devices")
     })?;
 
     // Diagnostic REPL: no whisper, no audio, nothing dispatched.
     if model_path == "probe" {
         probe::run();
+        return Ok(());
+    }
+
+    // Which microphone would capture use?
+    if model_path == "devices" {
+        audio::capture::list_devices();
         return Ok(());
     }
 

@@ -25,6 +25,10 @@ fetch-model:
 build:
     cargo build --release
 
+# List audio inputs and show which mic capture would use
+devices:
+    cargo run --release -- devices
+
 # Type utterances, see the matcher's whole decision chain with scores
 probe:
     cargo run --release -- probe
