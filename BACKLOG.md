@@ -243,7 +243,7 @@ As duas dicas de texto do overlay (`src/ui/overlay.rs`) citam "envia" e "cambio"
 
 ## M2 — Alvos dinâmicos
 
-### M2.1 — Matar a tabela de aliases ✅
+### M2.1 — Matar a tabela de aliases ✅ `1085b2a`
 
 `resolve_target_alias` (removida por este item) traduz a palavra falada para um nome de classe chumbado, e só então `focus_window_and_type` procura essa classe nas janelas vivas. A tradução corrompe a busca.
 
@@ -316,7 +316,7 @@ O limiar mais duro em título é de graça: alvo legítimo casa por token exato 
 
 **Aceite:** `just vocab` verde, e passa a integrar o `just check` a partir deste item. `resolve_target_alias` não existe mais. As 7 linhas da tabela de resolução viram teste, com um JSON de `hyprctl clients` fixo em `tests/fixtures/`. Uma fixture com janela titulada "Câmbio do dólar" não intercepta o comando `send`. Nenhum nome de aplicativo aparece no código-fonte — todos vêm do `commands.toml`.
 
-### M2.2 — Corrigir o match vazio em `focus_window_and_type`
+### M2.2 — Corrigir o match vazio em `focus_window_and_type` ✅ `1085b2a`
 
 Na antiga `focus_window_and_type` a condição `target_lower.contains(&class)` era verdadeira sempre que `class` é string vazia, porque `contains("")` é sempre `true`. Uma janela sem classe captura qualquer alvo falado.
 
