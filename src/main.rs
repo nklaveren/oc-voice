@@ -21,6 +21,7 @@ mod input;
 mod pipeline;
 mod probe;
 mod process;
+mod translate;
 mod ui;
 mod wm;
 
@@ -76,6 +77,9 @@ pub enum TranscriptEvent {
     /// In Enter mode: text was sent to a specific window target.
     /// Text, resolved window class, resolution score (M2.3).
     SentTo(String, String, f64),
+    /// Display-only translation of the previous Final (M7.2). Never written
+    /// to a session record — the original is the record.
+    Translated(String),
     /// A command is waiting for spoken confirmation (M4.3).
     AwaitingConfirmation(String),
     /// The pending command was discarded.
@@ -168,6 +172,14 @@ fn main() -> Result<()> {
 
     let runner: Arc<dyn CommandRunner> = Arc::new(SystemRunner);
 
+    // Translation is optional: without the model the app behaves exactly as
+    // before and the overlay shows originals.
+    let models_dir = std::path::Path::new(&model_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("models"))
+        .to_path_buf();
+    let translator = translate::spawn(&models_dir, tx.clone()).map(Arc::new);
+
     // Spawn the audio pipeline on a background thread; the main thread is
     // reserved for the GUI event loop (eframe needs to own it on most platforms).
     let pipeline_running = running.clone();
@@ -182,6 +194,7 @@ fn main() -> Result<()> {
             pipeline_settings,
             pipeline_runner,
             pipeline_config,
+            translator,
         ) {
             error!(error = ?e, "audio pipeline failed");
         }

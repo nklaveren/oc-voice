@@ -11,6 +11,23 @@ model_url := "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + mode
 default:
     @just --list
 
+# Convert the en->pt translation model into models/ct2-en-pt (one-off,
+# needs python; the runtime itself is pure Rust via ct2rs)
+fetch-mt:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -d {{ models_dir }}/ct2-en-pt ]; then echo "ct2-en-pt already present"; exit 0; fi
+    export HF_HOME={{ models_dir }}/.hf
+    nix shell --impure --expr 'let p = import <nixpkgs> {}; in p.python3.withPackages (ps: [ps.ctranslate2 ps.transformers ps.sentencepiece ps.torch])' --command bash -c '
+        ct2-transformers-converter --model Helsinki-NLP/opus-mt-tc-big-en-pt \
+            --output_dir {{ models_dir }}/ct2-en-pt --quantization int8 --force
+        # The converter drops the tokenizers; ct2rs needs them beside the model.
+        find {{ models_dir }}/.hf -name "source.spm" -exec cp {} {{ models_dir }}/ct2-en-pt/ \;
+        find {{ models_dir }}/.hf -name "target.spm" -exec cp {} {{ models_dir }}/ct2-en-pt/ \;
+    '
+    rm -rf {{ models_dir }}/.hf
+    du -sh {{ models_dir }}/ct2-en-pt
+
 # Download the Whisper model into models/
 fetch-model:
     mkdir -p {{ models_dir }}

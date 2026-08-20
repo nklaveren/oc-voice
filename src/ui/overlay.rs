@@ -51,6 +51,8 @@ struct OverlayApp {
     buffered: usize,
     show_settings: bool,
     pipeline_failed: bool,
+    /// Display-only translation of the most recent final (M7.2).
+    translated: Option<String>,
 }
 
 const LANGUAGES: &[&str] = &["auto", "pt", "en", "es", "fr", "de", "ja", "zh"];
@@ -72,6 +74,7 @@ impl OverlayApp {
             buffered: 0,
             show_settings: false,
             pipeline_failed: false,
+            translated: None,
         }
     }
 
@@ -107,6 +110,7 @@ impl OverlayApp {
                 TranscriptEvent::PartialCleared => self.partial.clear(),
                 TranscriptEvent::Final(s) => {
                     self.partial.clear();
+                    self.translated = None;
                     self.finals.push(s);
                     let max_keep = 4;
                     if self.finals.len() > max_keep {
@@ -127,6 +131,11 @@ impl OverlayApp {
                         let excess = self.finals.len() - max_keep;
                         self.finals.drain(..excess);
                     }
+                }
+                TranscriptEvent::Translated(t) => {
+                    // Shown under the original; the original stays visible so
+                    // what was actually said is never replaced by a guess.
+                    self.translated = Some(t);
                 }
                 TranscriptEvent::AwaitingConfirmation(what) => {
                     self.partial.clear();

@@ -204,7 +204,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração ✅ `4bec2b2`
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:56`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:58`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 
@@ -519,7 +519,13 @@ O lote a 106 ms por segmento confirma que traduzir a sessão inteira no fim é t
 
 **Nota metodológica.** A primeira medição desta mesma tarefa, feita em Python, deu mediana de 16.605 ms e saída degenerada (`sim sim sim sim`) — tokenização quebrada por alimentar `source.spm`/`target.spm` separados num modelo de vocabulário compartilhado. O `ct2rs` traz `all-tokenizers` e resolve isso sozinho. **38× de diferença entre o medidor quebrado e o correto**; o número absurdo era do medidor, como no bloco de números do M5.4 e nas condições de máquina de `94154d3`.
 
-**Aceite:** com a reunião em inglês, o overlay mostra pt-BR e o arquivo da sessão contém o inglês original, ambos verificáveis no mesmo teste. Conversão do modelo é passo único e offline (`ct2-transformers-converter`, único Python envolvido); o runtime é Rust puro via `ct2rs`.
+**O modelo.** `Helsinki-NLP/opus-mt-tc-big-en-pt` (OPUS-MT, Universidade de Helsinque), Transformer encoder-decoder da família Marian, CC-BY-4.0. Convertido para CTranslate2 `int8`: **228 MB**. Escolhido em vez de um LLM pelo mesmo raciocínio do M0.1 — um modelo dedicado resolve em 240 ms o que um generalista cobraria bilhões de parâmetros para fazer — e com uma garantia extra: ele é *treinado* para traduzir, não *instruído* a traduzir, então não tem prompt para escapar, não comenta e não responde à pergunta em vez de traduzi-la.
+
+**Limitação conhecida: um par de idiomas só.** O `tc-big-en-pt` faz inglês → português e nada mais. Uma reunião em espanhol precisaria de `opus-mt-es-pt`, mais ~200 MB, e assim por diante. Hoje o app assume que o áudio de sistema é inglês; se a fonte for outra coisa, a tradução simplesmente não acontece (o worker devolve texto idêntico e o evento é descartado), e o overlay mostra o original — degrada em silêncio em vez de mentir.
+
+O `LanguageLock` já sabe qual é o idioma da fonte depois de três detecções concordantes, então a peça que falta é escolher o modelo por par detectado. Isso é trabalho para quando houver um segundo par instalado; enquanto só existe um, seria complexidade sem uso.
+
+**Aceite:** com a reunião em inglês, o overlay mostra pt-BR e o arquivo da sessão contém o inglês original, ambos verificáveis no mesmo teste. Conversão do modelo é passo único e offline (`ct2-transformers-converter`, único Python envolvido); o runtime é Rust puro via `ct2rs`. Fonte num idioma sem modelo instalado deve mostrar o original, nunca uma tradução errada.
 
 ### M7.3 — Separar fonte de tarefa
 

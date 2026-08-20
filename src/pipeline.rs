@@ -32,6 +32,7 @@ pub fn run_audio_pipeline(
     settings: Arc<Mutex<AppSettings>>,
     runner: Arc<dyn CommandRunner>,
     config: Arc<config::Config>,
+    translator: Option<Arc<crossbeam_channel::Sender<crate::translate::Request>>>,
 ) -> Result<()> {
     info!(model = %model_path, "loading whisper model");
     let load_start = Instant::now();
@@ -181,6 +182,11 @@ pub fn run_audio_pipeline(
                     let mode = lock_settings(&settings).mode;
                     info!(?mode, source = if matches!(mode, TranscribeMode::Translate) { "system" } else { "mic" }, text = %trimmed, "FINAL");
                     emit(&tx, TranscriptEvent::Final(trimmed.to_string()));
+                    // M7.2: the original goes to the record and the overlay;
+                    // the translation is display-only and arrives async.
+                    if mode == TranscribeMode::Translate {
+                        crate::translate::request(&translator, trimmed);
+                    }
                     commands::route_final(
                         mode,
                         trimmed,
@@ -210,6 +216,11 @@ pub fn run_audio_pipeline(
                 if !trimmed.is_empty() {
                     let mode = lock_settings(&settings).mode;
                     emit(&tx, TranscriptEvent::Final(trimmed.to_string()));
+                    // M7.2: the original goes to the record and the overlay;
+                    // the translation is display-only and arrives async.
+                    if mode == TranscribeMode::Translate {
+                        crate::translate::request(&translator, trimmed);
+                    }
                     commands::route_final(
                         mode,
                         trimmed,

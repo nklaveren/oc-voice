@@ -1,0 +1,13 @@
+# This project builds whisper.cpp and CTranslate2 from source, and both will
+# happily saturate every core — which makes the machine unusable while a
+# meeting, a VM or a database is running. Half the cores keeps the desk
+# responsive and costs little wall clock, since these builds are link-bound
+# at the end anyway.
+[build]
+jobs = 8
+
+[env]
+# The C++ sub-builds spawn their own make/cmake jobs and do not inherit
+# cargo's -j, so they need capping separately or they undo the limit above.
+CMAKE_BUILD_PARALLEL_LEVEL = "6"
+MAKEFLAGS = "-j6"
