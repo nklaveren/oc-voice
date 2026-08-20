@@ -47,18 +47,46 @@ struct OverlayApp {
     settings: Arc<Mutex<AppSettings>>,
     config: Arc<crate::config::Config>,
     pub(super) partial: String,
-    pub(super) finals: Vec<String>,
+    pub(super) finals: Vec<Line>,
     pub(super) buffered: usize,
     show_settings: bool,
     pub(super) pipeline_failed: bool,
-    /// Display-only translation of the most recent final (M7.2).
-    pub(super) translated: Option<String>,
     /// When a session is recording, and how many lines it holds (M7.1).
     /// Recording without a visible indication is not acceptable.
     pub(super) recording: Option<(std::time::Instant, usize)>,
 }
 
+/// One line of scrollback: what was said, and — for as long as the line
+/// exists — what it was translated to.
+///
+/// The translation used to be a single `Option<String>` holding only the most
+/// recent one, cleared on every new utterance. Scrolling back through a
+/// meeting then showed originals with the translations stripped out, which is
+/// the opposite of useful: the reason to look back is usually to re-read the
+/// part you did not follow.
+#[derive(Debug, Clone)]
+pub(super) struct Line {
+    pub text: String,
+    pub translation: Option<String>,
+}
+
+impl Line {
+    pub(super) fn new(text: impl Into<String>) -> Self {
+        Line {
+            text: text.into(),
+            translation: None,
+        }
+    }
+}
+
 const LANGUAGES: &[&str] = &["auto", "pt", "en", "es", "fr", "de", "ja", "zh"];
+
+/// Marker prefixed to a translated line.
+///
+/// Deliberately ASCII. The `↳` this replaces rendered as an empty box in the
+/// bundled font, so every translation carried a tofu glyph — a missing font is
+/// not something a subtitle overlay can detect and fall back from at runtime.
+const TRANSLATION_MARKER: &str = "|_ ";
 
 /// Vertical space reserved for the control row, claimed before the scrollback
 /// takes what remains.
@@ -91,7 +119,6 @@ impl OverlayApp {
             buffered: 0,
             show_settings: false,
             pipeline_failed: false,
-            translated: None,
             recording: None,
         }
     }
@@ -151,11 +178,10 @@ impl eframe::App for OverlayApp {
                 if let Some((since, lines)) = self.recording {
                     let secs = since.elapsed().as_secs();
                     // Blinks so it cannot be mistaken for a static label.
-                    let dot = if secs % 2 == 0 {
-                        "\u{23fa}"
-                    } else {
-                        "\u{25cb}"
-                    };
+                    // ASCII, like the translation marker: the bundled font has
+                    // no ⏺/◯ and drew an empty box for both, which blinks
+                    // exactly as well as nothing at all.
+                    let dot = if secs % 2 == 0 { "*" } else { " " };
                     ui.label(
                         egui::RichText::new(format!(
                             "{dot} GRAVANDO  {:02}:{:02}:{:02}  ({lines} falas)",
@@ -209,7 +235,7 @@ impl eframe::App for OverlayApp {
                         for line in &self.finals {
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new(line)
+                                    egui::RichText::new(&line.text)
                                         .color(egui::Color32::WHITE)
                                         .size(18.0),
                                 )
@@ -217,20 +243,21 @@ impl eframe::App for OverlayApp {
                                 // window edge instead of wrapping.
                                 .wrap(),
                             );
-                        }
 
-                        // M7.2: the translation sits under the last original,
-                        // tinted and marked, so it is never mistaken for what
-                        // was said. The original stays on screen.
-                        if let Some(ref pt) = self.translated {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(format!("\u{21b3} {pt}"))
-                                        .color(egui::Color32::from_rgb(120, 200, 255))
-                                        .size(18.0),
-                                )
-                                .wrap(),
-                            );
+                            // M7.2: the translation sits under its own
+                            // original, tinted and marked, so it is never
+                            // mistaken for what was said — and it stays there.
+                            // Scrolling back through a meeting must show both.
+                            if let Some(ref pt) = line.translation {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format!("{TRANSLATION_MARKER}{pt}"))
+                                            .color(egui::Color32::from_rgb(120, 200, 255))
+                                            .size(18.0),
+                                    )
+                                    .wrap(),
+                                );
+                            }
                         }
                         if !self.partial.is_empty() {
                             ui.add(
@@ -263,10 +290,16 @@ impl eframe::App for OverlayApp {
                         self.show_settings = !self.show_settings;
                     }
 
+                    // Emoji come from egui's emoji font; the arrow and return
+                    // symbols did not, and rendered as empty boxes.
                     let mode_label = match self.settings.lock().unwrap().mode {
                         TranscribeMode::Input => "\u{1f4dd} Input Mode",
-                        TranscribeMode::Translate => "\u{1f310} System Audio \u{2192} EN",
-                        TranscribeMode::Enter => "\u{23ce} Enter Mode",
+                        // No target language in the label: whether a
+                        // translation appears depends on the model being
+                        // installed, and a label that promises one when none
+                        // is loaded is worse than no label.
+                        TranscribeMode::Translate => "\u{1f310} System Audio",
+                        TranscribeMode::Enter => "\u{1f4e4} Enter Mode",
                         TranscribeMode::Command => "\u{1f5a5} Command Mode",
                     };
                     if ui.button(mode_label).clicked() {

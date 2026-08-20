@@ -68,9 +68,16 @@ pub enum TranscriptEvent {
     SessionStarted,
     /// It closed: where the file landed, and how many lines it holds.
     SessionStopped(String, usize),
-    /// Display-only translation of the previous Final (M7.2). Never written
-    /// to a session record — the original is the record.
-    Translated(String),
+    /// Display-only translation of a Final (M7.2). Never written to a session
+    /// record — the original is the record.
+    ///
+    /// Carries the `original` it was made from so the overlay can attach it to
+    /// the right line. Translation is async and some requests are dropped, so
+    /// "the most recent line" is not a safe assumption.
+    Translated {
+        original: String,
+        text: String,
+    },
     /// A command is waiting for spoken confirmation (M4.3).
     AwaitingConfirmation(String),
     /// The pending command was discarded.

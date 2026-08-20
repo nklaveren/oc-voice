@@ -66,7 +66,10 @@ pub fn spawn(models_dir: &Path, tx: Sender<TranscriptEvent>) -> Option<Sender<Re
                         // Identical output means the source was already the
                         // target language; showing it twice is just noise.
                         if !translated.is_empty() && translated != text {
-                            let _ = tx.send(TranscriptEvent::Translated(translated));
+                            let _ = tx.send(TranscriptEvent::Translated {
+                                original: text.clone(),
+                                text: translated,
+                            });
                         }
                     }
                 }
