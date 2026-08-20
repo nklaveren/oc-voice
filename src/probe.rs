@@ -99,12 +99,16 @@ fn probe_one(
             )
         })
         .collect();
+    // The `{alvo}` slot, when one matched. Everything below resolves *this*,
+    // because it is what dispatch resolves.
+    let mut named: Option<String> = None;
     if let Some(m) = matcher::match_template(spoken, &templates, threshold) {
         let def = &vocab.templates[m.template_index];
         println!(
             "  template     {:?} -> {}  {:.2}  slots {:?}",
             def.pattern, def.action, m.score, m.slots
         );
+        named = m.slots.get("alvo").cloned();
     }
 
     // Send-to prefix + live-window target resolution.
@@ -140,11 +144,21 @@ fn probe_one(
         }
     }
 
-    // Bare target probe (what "foca o X" would find).
+    // What dispatch would resolve: the `{alvo}` slot when a template filled
+    // one, the bare utterance otherwise.
+    //
+    // Resolving the raw utterance here made the probe contradict the thing it
+    // exists to explain: "vai pro terminal" printed "nenhuma janela" while
+    // dispatch focused one, because the category stage matches a whole
+    // normalized string and "vai pro terminal" is not "terminal".
+    let asked: &str = named.as_deref().unwrap_or(spoken);
     let windows = target::live_windows(runner);
-    match target::resolve(spoken, &vocab.targets, &windows, threshold) {
-        Some(t) => println!("  como alvo    {} ({:.2})", t.class, t.score),
-        None => println!("  como alvo    nenhuma janela ({} abertas)", windows.len()),
+    match target::resolve(asked, &vocab.targets, &windows, threshold) {
+        Some(t) => println!("  como alvo    {} ({:.2})  <- {asked:?}", t.class, t.score),
+        None => println!(
+            "  como alvo    nenhuma das {} janelas  <- {asked:?}",
+            windows.len()
+        ),
     }
 
     // And the half the window list cannot see. "Abre o Outlook" matched its
@@ -159,7 +173,7 @@ fn probe_one(
             if live.is_empty() {
                 println!("  como aba     porta {port} não respondeu");
             } else {
-                match crate::wm::tabs::resolve(spoken, &live, crate::wm::dispatch::TAB_THRESHOLD) {
+                match crate::wm::tabs::resolve(asked, &live, crate::wm::dispatch::TAB_THRESHOLD) {
                     Some(t) => println!("  como aba     {} ({} abas)", t.title, live.len()),
                     None => println!("  como aba     nenhuma das {} abas casou", live.len()),
                 }

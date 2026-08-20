@@ -40,6 +40,13 @@ impl DryRunRunner {
         // Anything that types, and any hyprctl call that is not a query.
         matches!(program, "wtype" | "xdotool" | "osascript")
             || (program == "hyprctl" && !args.contains(&"-j"))
+            // A browser tab is state too. `curl .../json/activate/<id>` is a
+            // plain GET, which reads like a query and is not one: it switches
+            // the tab in front of the user. The probe changed a window title
+            // this way and then measured the world it had just altered,
+            // reporting a resolution that the tab path had not performed.
+            // `/json/list` stays allowed — it is the read this is built on.
+            || (program == "curl" && args.iter().any(|a| a.contains("/json/activate/")))
     }
 }
 
@@ -147,6 +154,10 @@ mod tests {
                 "osascript",
                 vec!["-e", "tell application \"System Events\""],
             ),
+            // A GET that is not a query: it switches the tab in front of the
+            // user. The probe used to run this for real, change a window
+            // title, and then measure the world it had just altered.
+            ("curl", vec!["-s", "http://127.0.0.1:9222/json/activate/D4"]),
         ] {
             assert!(
                 DryRunRunner::is_mutating(prog, &args),
@@ -155,7 +166,7 @@ mod tests {
             let out = dry.output(prog, &args).unwrap();
             assert!(out.stdout.is_empty());
         }
-        assert_eq!(dry.blocked().len(), 6, "todas as chamadas registradas");
+        assert_eq!(dry.blocked().len(), 7, "todas as chamadas registradas");
     }
 
     #[test]
@@ -164,6 +175,10 @@ mod tests {
         for (prog, args) in [
             ("hyprctl", vec!["clients", "-j"]),
             ("hyprctl", vec!["monitors", "-j"]),
+            // Listing tabs is the read the whole tab path is built on, and
+            // blocking it would make the probe report "no tab matched" for
+            // every tab there is.
+            ("curl", vec!["-s", "http://127.0.0.1:9222/json/list"]),
         ] {
             assert!(!DryRunRunner::is_mutating(prog, &args));
         }
