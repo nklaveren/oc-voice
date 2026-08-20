@@ -6,6 +6,65 @@ pub trait CommandRunner: Send + Sync {
     fn spawn_piped(&self, program: &str, args: &[&str]) -> io::Result<Child>;
 }
 
+/// Reads through to the real system, refuses anything that would change it.
+///
+/// The probe needs live windows and monitors to resolve targets honestly,
+/// but must never actually focus a monitor or switch a workspace while
+/// someone is exploring what an utterance would do. Reads (`-j` queries)
+/// pass through; `dispatch` and text injection are swallowed and recorded.
+pub struct DryRunRunner {
+    inner: SystemRunner,
+    blocked: std::sync::Mutex<Vec<(String, Vec<String>)>>,
+}
+
+impl Default for DryRunRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DryRunRunner {
+    pub fn new() -> Self {
+        DryRunRunner {
+            inner: SystemRunner,
+            blocked: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Everything this runner refused to execute, in order.
+    pub fn blocked(&self) -> Vec<(String, Vec<String>)> {
+        self.blocked.lock().map(|g| g.clone()).unwrap_or_default()
+    }
+
+    fn is_mutating(program: &str, args: &[&str]) -> bool {
+        // Anything that types, and any hyprctl call that is not a query.
+        matches!(program, "wtype" | "xdotool") || (program == "hyprctl" && !args.contains(&"-j"))
+    }
+}
+
+impl CommandRunner for DryRunRunner {
+    fn output(&self, program: &str, args: &[&str]) -> io::Result<Output> {
+        if Self::is_mutating(program, args) {
+            if let Ok(mut g) = self.blocked.lock() {
+                g.push((
+                    program.to_string(),
+                    args.iter().map(|s| s.to_string()).collect(),
+                ));
+            }
+            return Ok(Output {
+                status: Default::default(),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            });
+        }
+        self.inner.output(program, args)
+    }
+
+    fn spawn_piped(&self, program: &str, args: &[&str]) -> io::Result<Child> {
+        self.inner.spawn_piped(program, args)
+    }
+}
+
 pub struct SystemRunner;
 
 impl CommandRunner for SystemRunner {
@@ -66,5 +125,42 @@ impl CommandRunner for FakeRunner {
             io::ErrorKind::Unsupported,
             "FakeRunner does not spawn long-running processes",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dry_run_blocks_everything_that_changes_state() {
+        let dry = DryRunRunner::new();
+        // These must never reach the system from a diagnostic tool.
+        for (prog, args) in [
+            ("hyprctl", vec!["dispatch", "workspace", "4"]),
+            ("hyprctl", vec!["dispatch", "killactive"]),
+            ("hyprctl", vec!["dispatch", "focusmonitor", "DP-1"]),
+            ("wtype", vec!["texto qualquer"]),
+            ("xdotool", vec!["type", "texto"]),
+        ] {
+            assert!(
+                DryRunRunner::is_mutating(prog, &args),
+                "{prog} {args:?} deveria ser bloqueado"
+            );
+            let out = dry.output(prog, &args).unwrap();
+            assert!(out.stdout.is_empty());
+        }
+        assert_eq!(dry.blocked().len(), 5, "todas as chamadas registradas");
+    }
+
+    #[test]
+    fn dry_run_lets_queries_through() {
+        // Resolution has to see the real session or the probe lies.
+        for (prog, args) in [
+            ("hyprctl", vec!["clients", "-j"]),
+            ("hyprctl", vec!["monitors", "-j"]),
+        ] {
+            assert!(!DryRunRunner::is_mutating(prog, &args));
+        }
     }
 }

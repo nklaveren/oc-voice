@@ -79,8 +79,23 @@ action = "move_focus"
 pattern = "área de trabalho {numero}"
 action = "workspace"
 
+# Whisper normalizes the spoken contraction "pra" to "para", so the expanded
+# form is what actually arrives — it gets its own template instead of
+# scraping the threshold at 0.82 through fuzzy match.
 [[pt.templates]]
 pattern = "leva pra {numero}"
+action = "move_to_workspace"
+
+[[pt.templates]]
+pattern = "leva para {numero}"
+action = "move_to_workspace"
+
+[[pt.templates]]
+pattern = "manda pra {numero}"
+action = "move_to_workspace"
+
+[[pt.templates]]
+pattern = "manda para {numero}"
 action = "move_to_workspace"
 
 [[pt.templates]]

@@ -3,8 +3,12 @@
 //! Reads utterances from stdin (one per line, as if whisper had emitted
 //! them) and prints the whole decision chain with scores: normalization,
 //! prefix, every vocabulary pool, template matching, slot resolution, and
-//! window/monitor resolution against the LIVE session. Nothing is ever
-//! dispatched or typed — hyprctl is only read.
+//! window/monitor resolution against the LIVE session.
+//!
+//! Runs on a DryRunRunner: hyprctl queries pass through to the real session
+//! so resolution is honest, while every dispatch and every keystroke is
+//! swallowed and reported instead of executed. Typing "área de trabalho
+//! quatro" here shows what would happen; it does not switch your workspace.
 //!
 //! This is how you test the Jaro-Winkler discovery by hand: type the
 //! mishearings ("sambio", "monitor da direta") and watch where they land.
@@ -14,7 +18,7 @@ use std::sync::Arc;
 
 use crate::commands::matcher;
 use crate::config::{Config, LangVocab};
-use crate::process::{CommandRunner, SystemRunner};
+use crate::process::{CommandRunner, DryRunRunner};
 use crate::wm::target;
 
 fn pool(label: &str, spoken: &str, words: &[String], threshold: f64) {
@@ -47,7 +51,14 @@ fn pool(label: &str, spoken: &str, words: &[String], threshold: f64) {
     }
 }
 
-fn probe_one(spoken: &str, vocab: &LangVocab, config: &Config, runner: &Arc<dyn CommandRunner>) {
+fn probe_one(
+    spoken: &str,
+    vocab: &LangVocab,
+    config: &Config,
+    runner: &Arc<dyn CommandRunner>,
+    dry: &Arc<DryRunRunner>,
+) {
+    let before = dry.blocked().len();
     let threshold = config.threshold();
     println!("normalizado: {:?}", matcher::normalize(spoken));
 
@@ -123,17 +134,41 @@ fn probe_one(spoken: &str, vocab: &LangVocab, config: &Config, runner: &Arc<dyn 
         println!("  como alvo    {} ({:.2})", t.class, t.score);
     }
 
-    // Final verdict through the real classifier.
+    // Both verdicts: the same utterance means different things per mode, and
+    // showing only one is how "the template matched but it says Dictation"
+    // becomes confusing.
     match crate::commands::classify(spoken, vocab, threshold) {
-        Some(cmd) => println!("  => {cmd:?}"),
-        None => println!("  => (nada)"),
+        Some(cmd) => println!("  => modo Enter:   {cmd:?}"),
+        None => println!("  => modo Enter:   (nada)"),
+    }
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let mut pending = None;
+    crate::wm::dispatch::dispatch_spoken(vocab, config, spoken, runner, &tx, &mut pending);
+    let confirmations: Vec<String> = rx
+        .try_iter()
+        .filter_map(|e| match e {
+            crate::TranscriptEvent::AwaitingConfirmation(s) => Some(format!("[confirmaria] {s}")),
+            _ => None,
+        })
+        .collect();
+    let would_run: Vec<String> = dry.blocked()[before..]
+        .iter()
+        .map(|(p, a)| format!("{p} {}", a.join(" ")))
+        .collect();
+    let mut parts = would_run;
+    parts.extend(confirmations);
+    if parts.is_empty() {
+        println!("  => modo Command: (nada)");
+    } else {
+        println!("  => modo Command: {}", parts.join(" | "));
     }
     println!();
 }
 
 pub fn run() {
     let config = Config::load();
-    let runner: Arc<dyn CommandRunner> = Arc::new(SystemRunner);
+    let dry = Arc::new(DryRunRunner::new());
+    let runner: Arc<dyn CommandRunner> = dry.clone();
     let lang = std::env::args().nth(2).unwrap_or_else(|| "pt".to_string());
     let Some(vocab) = config.vocab(&lang) else {
         eprintln!("idioma {lang:?} sem seção de comandos (transcrição pura)");
@@ -151,6 +186,6 @@ pub fn run() {
         if spoken.is_empty() {
             continue;
         }
-        probe_one(spoken, vocab, &config, &runner);
+        probe_one(spoken, vocab, &config, &runner, &dry);
     }
 }
