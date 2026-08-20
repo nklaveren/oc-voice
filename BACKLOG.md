@@ -86,7 +86,11 @@ Exceção legítima: `commands.rs` pode conter o TOML default embutido via `incl
 
 É o modo de falha crônico deste repo — o `README` e o `AGENTS.md` ficaram mentindo por meses, e o backlog conseguiu ficar obsoleto dentro de um único commit. O gate extrai cada `arquivo:linha` dos documentos (fora de blocos de código), confere se o arquivo existe e se a linha ainda contém o símbolo que o texto afirma, e reprova na divergência. Toda referência precisa nomear o símbolo em backticks ao lado — é o que o gate verifica. Deve passar hoje.
 
-**Aceite:** `just refs` verde. `just vocab` vermelho hoje, listando as 33 ocorrências, e verde depois de M2.1. Ambos entram no `just check`.
+**Aceite:** `just refs` verde e dentro do `just check`. `just vocab` vermelho hoje, listando as ocorrências, e **fora do `just check`** — ele entra lá em M2.1, quando de fato ficar verde.
+
+**Correção pós-entrega, e o erro foi da especificação, não do código.** A versão original deste item mandava os dois gates entrarem no `just check` de imediato, e a implementação seguiu corretamente. Isso deixaria o build vermelho de propósito por seis itens seguidos (M0.5 até M2.1), e build cronicamente vermelho é pior que gate nenhum: ensina a ignorar o vermelho e esconde a primeira falha real. O `limits` pôde entrar de cara porque M0.2 vinha logo em seguida; o `vocab` não tem essa folga.
+
+O gate também precisou passar a **ignorar blocos `#[cfg(test)]`**: os testes do matcher contêm por construção as palavras que eles casam, então o gate como escrito exigia apagar cobertura de teste para ficar verde — ele reprovava `assert_eq!(classify("envia"), ...)`. Corrigido em `6e493ef`; restam 25 ocorrências reais, 23 em `commands/mod.rs` e 2 nas dicas do overlay.
 
 ### M0.5 — Pânico silencioso na thread de áudio
 
@@ -229,6 +233,8 @@ As tabelas de números (M3.2) e direções (M3.1) moram aqui também — são vo
 
 **Limite conhecido, e é preciso ser explícito no README.** O matcher de M1.1 depende de duas premissas que só valem para escrita alfabética com espaço entre palavras: a dobra de diacríticos e o filtro por contagem de palavras. Japonês e chinês não têm espaço entre palavras — o filtro colapsa e o Jaro-Winkler sobre ideogramas não mede a mesma coisa. `ja` e `zh` continuam funcionando para **transcrição e ditado**, mas não recebem comandos de voz. Suporte a comando para CJK exige tokenizador próprio e fica fora deste roteiro.
 
+As duas dicas de texto do overlay (`src/ui/overlay.rs`) citam "envia" e "cambio" chumbados — também passam a vir da config do idioma ativo, senão a UI anuncia comando em português para quem selecionou inglês.
+
 **Aceite:** rodar sem config nenhuma funciona igual a hoje, em português. Trocar o idioma do overlay para `en` faz os comandos em inglês funcionarem sem recompilar. Um `commands.toml` com uma seção `[es]` escrita pelo usuário passa a funcionar ao selecionar espanhol. Selecionar `ja` transcreve normalmente e não dispara comando nenhum.
 
 ---
@@ -306,7 +312,7 @@ A lista oposta serve como **sinal de ambiguidade**, não como candidata: resolvi
 
 O limiar mais duro em título é de graça: alvo legítimo casa por token exato e pontua 1.00 — `teams`, `brave`, `remmina` e `alacritty` medidos, todos 1.00.
 
-**Aceite:** `resolve_target_alias` não existe mais. As 7 linhas da tabela de resolução viram teste, com um JSON de `hyprctl clients` fixo em `tests/fixtures/`. Uma fixture com janela titulada "Câmbio do dólar" não intercepta o comando `send`. Nenhum nome de aplicativo aparece no código-fonte — todos vêm do `commands.toml`.
+**Aceite:** `just vocab` verde, e passa a integrar o `just check` a partir deste item. `resolve_target_alias` não existe mais. As 7 linhas da tabela de resolução viram teste, com um JSON de `hyprctl clients` fixo em `tests/fixtures/`. Uma fixture com janela titulada "Câmbio do dólar" não intercepta o comando `send`. Nenhum nome de aplicativo aparece no código-fonte — todos vêm do `commands.toml`.
 
 ### M2.2 — Corrigir o match vazio em `focus_window_and_type`
 
