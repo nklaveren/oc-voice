@@ -322,7 +322,7 @@ Na antiga `focus_window_and_type` a condição `target_lower.contains(&class)` e
 
 **Aceite:** candidatos com `class` e `title` vazios são descartados antes de comparar. Teste com fixture contendo uma janela de classe vazia.
 
-### M2.3 — Feedback de alvo no overlay ✅
+### M2.3 — Feedback de alvo no overlay ✅ `976b8c8`
 
 Focar a janela errada e digitar dentro dela é destrutivo e não tem desfazer. O overlay precisa mostrar o alvo resolvido e o score de confiança antes de injetar.
 
@@ -409,7 +409,7 @@ O prefixo não substitui o filtro de contagem de palavras de M1.1 — ele age an
 
 **Aceite:** o seletor de modo do overlay lista os quatro. Em `Command`, `type_text` nunca é chamado.
 
-### M4.3 — Política única de confirmação ✅
+### M4.3 — Política única de confirmação ✅ `976b8c8`
 
 Três itens deste backlog pediam confirmação por caminhos diferentes: alvo de baixa confiança (M2.3), ação destrutiva (M3.3) e comando reconhecido errado. Três mecanismos separados viram três comportamentos inconsistentes. Um só, com duas entradas:
 
