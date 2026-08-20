@@ -39,7 +39,12 @@ pub fn transcribe_with(
         let s = crate::lock_settings(settings);
         (s.language.clone(), s.mode == TranscribeMode::Translate)
     };
-    if lang == "auto" {
+    // `language` is the SOURCE hint, not the output language — whisper's
+    // translate task only ever emits English. In Translate mode the source is
+    // whatever the meeting happens to be speaking, so forcing the UI's
+    // selection there tells whisper to decode English audio as Portuguese and
+    // it returns noise. Detection is the only correct answer for system audio.
+    if lang == "auto" || translate {
         params.set_language(None);
     } else {
         params.set_language(Some(&lang));

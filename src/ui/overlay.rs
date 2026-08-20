@@ -279,7 +279,7 @@ impl eframe::App for OverlayApp {
 
                     let mode_label = match self.settings.lock().unwrap().mode {
                         TranscribeMode::Input => "\u{1f4dd} Input Mode",
-                        TranscribeMode::Translate => "\u{1f310} Translate Mode",
+                        TranscribeMode::Translate => "\u{1f310} System Audio \u{2192} EN",
                         TranscribeMode::Enter => "\u{23ce} Enter Mode",
                         TranscribeMode::Command => "\u{1f5a5} Command Mode",
                     };

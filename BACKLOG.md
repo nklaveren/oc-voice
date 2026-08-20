@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:48`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:110`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:48`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:115`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -462,6 +462,54 @@ GitHub Actions com `nix develop --command just check` mais `cargo test`. Usar a 
 Documentar `just run-cpu` e medir a latência real de `large-v3-turbo` em CPU — se for inviável, recomendar um modelo menor explicitamente, com número medido.
 
 **Aceite:** README traz latência medida nas duas trilhas, com o hardware nomeado.
+
+---
+
+## M7 — Sessão de reunião e tradução de verdade
+
+Os modos de hoje misturam duas dimensões independentes: **de onde vem o áudio** (microfone ou sistema) e **o que fazer com ele** (ditar, comandar, transcrever, traduzir). `Translate` é o sintoma: o nome promete tradução, mas o que ele faz é *capturar áudio do sistema e pedir o task translate do whisper*. Separar as duas dimensões é o que destrava os dois itens abaixo.
+
+### M7.1 — Sessão gravada com relatório
+
+Hoje o overlay mostra as últimas quatro linhas e esquece o resto. Para acompanhar uma reunião é preciso o oposto: capturar tudo, do início ao fim, e produzir um documento no final.
+
+- Comando (voz e UI) para **iniciar** e **encerrar** uma sessão.
+- Enquanto aberta, toda transcrição final é acumulada com timestamp relativo ao início.
+- Ao encerrar, grava um arquivo em `~/.local/share/oc-voice/sessions/<data-hora>.md` com: início, fim, duração, idioma detectado, e a transcrição corrida com marcas de tempo.
+- O overlay mostra que a sessão está aberta e há quanto tempo — gravar sem indicação visível é inaceitável.
+
+Isso é ortogonal à fonte: deve funcionar gravando o microfone (uma ideia falada sozinho) ou o áudio do sistema (a reunião).
+
+**Aceite:** abrir sessão, falar em três momentos separados, encerrar, e o arquivo conter as três falas com timestamps plausíveis. Sessão aberta sem indicação no overlay reprova o item.
+
+### M7.2 — Tradução que traduz
+
+**O whisper não faz o que este modo promete.** Ele tem duas tarefas: `transcribe`, que devolve o idioma da fonte, e `translate`, que devolve **inglês, e só inglês** — não existe alvo configurável. O parâmetro `language` é a dica da *fonte*, não o destino, e o comentário do `whisper-rs` que diz o contrário está errado.
+
+Consequência prática, e é a que o usuário encontrou: numa reunião em inglês, `translate` é uma operação nula. Pior, com um idioma fixo selecionado na UI o whisper era instruído a decodificar inglês como português e devolvia ruído (`.`, `O que é?`). Corrigido: em modo Translate a fonte é sempre detectada.
+
+Para ter inglês → português é preciso um segundo estágio, depois do ASR. Opções, com o custo real:
+
+| Caminho | Custo | Observação |
+|---|---|---|
+| Modelo local de tradução (NLLB, M2M100, Opus-MT) | mais um modelo na GPU | offline, coerente com o projeto; Opus-MT en→pt é pequeno |
+| API remota | quebra a premissa "nada sai da máquina" | precisa ser opt-in explícito |
+| Nenhum | zero | assumir que Translate é "áudio do sistema → inglês" e nomear assim |
+
+A terceira linha é o que está no código agora, e o rótulo do overlay foi corrigido para dizer isso: `System Audio → EN`. Prometer tradução que não acontece é pior que não ter o modo.
+
+**Aceite:** ou o modo traduz de fato para o idioma escolhido, ou o nome e o rótulo descrevem exatamente o que ele faz. Não existe estado intermediário aceitável.
+
+### M7.3 — Separar fonte de tarefa
+
+`TranscribeMode` tem quatro valores que codificam combinações de duas dimensões, e por isso "gravar a reunião" e "traduzir a reunião" não podem coexistir. Trocar por dois eixos:
+
+- **fonte:** `Mic` | `System`
+- **tarefa:** `Dictate` | `Enter` | `Command` | `Transcribe` | `Translate`
+
+Nem toda combinação faz sentido (comando a partir do áudio do sistema, não), mas as que fazem passam a existir sem inventar um quinto modo para cada cruzamento.
+
+**Aceite:** gravar sessão do microfone e do áudio do sistema são a mesma tarefa com fontes diferentes, não dois caminhos de código.
 
 ---
 
