@@ -1,4 +1,10 @@
+use crate::input::inject::{type_key, type_shift_return, type_text};
+use crate::process::CommandRunner;
+use crate::wm::hyprland::focus_window_and_type;
+use crate::{emit, TranscriptEvent};
+use crossbeam_channel::Sender;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tracing::info;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,6 +114,53 @@ fn resolve_target_alias(target: &str) -> &str {
         "telegram" => "telegram",
         "whatsapp" => "whatsapp-nativefier",
         _ => target,
+    }
+}
+
+pub fn execute_command(
+    cmd: &VoiceCommand,
+    enter_buffer: &mut Vec<String>,
+    tx: &Sender<TranscriptEvent>,
+    runner: &Arc<dyn CommandRunner>,
+) {
+    match cmd {
+        VoiceCommand::Send => {
+            let display_text = enter_buffer.join("\n");
+            let inject_text = enter_buffer.join(" ");
+            enter_buffer.clear();
+            let clean = inject_text.trim();
+            if !clean.is_empty() {
+                emit(tx, TranscriptEvent::Sent(display_text));
+                type_text(&**runner, clean);
+                type_key(&**runner, "Return");
+            }
+        }
+        VoiceCommand::Cancel => {
+            enter_buffer.clear();
+            emit(tx, TranscriptEvent::Cancelled);
+        }
+        VoiceCommand::Newline => {
+            let inject_text = enter_buffer.join(" ");
+            enter_buffer.clear();
+            if !inject_text.is_empty() {
+                type_text(&**runner, inject_text.trim());
+            }
+            type_shift_return(&**runner);
+            emit(tx, TranscriptEvent::Newline);
+        }
+        VoiceCommand::SendTo { target } => {
+            let display_text = enter_buffer.join("\n");
+            let inject_text = enter_buffer.join(" ");
+            enter_buffer.clear();
+            let clean = inject_text.trim();
+            if !clean.is_empty() {
+                emit(tx, TranscriptEvent::SentTo(display_text, target.clone()));
+                focus_window_and_type(runner, target, clean);
+            }
+        }
+        VoiceCommand::Dictation => {
+            // handled by caller — pushes to enter_buffer
+        }
     }
 }
 
