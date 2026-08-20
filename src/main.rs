@@ -6,7 +6,7 @@
 //! to a floating overlay window (subtitle-style).
 //!
 //! Press Ctrl+C to stop.
-//! Usage: oc-voice-poc <path-to-ggml-model.bin>
+//! Usage: oc-voice <path-to-ggml-model.bin>
 
 use anyhow::{anyhow, Context, Result};
 mod asr;
@@ -94,13 +94,13 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "oc_voice_poc=info".into()),
+                .unwrap_or_else(|_| "oc_voice=info".into()),
         )
         .init();
 
     let model_path = std::env::args()
         .nth(1)
-        .ok_or_else(|| anyhow!("usage: oc-voice-poc <path-to-ggml-model.bin>"))?;
+        .ok_or_else(|| anyhow!("usage: oc-voice <path-to-ggml-model.bin>"))?;
 
     let running = Arc::new(AtomicBool::new(true));
     let running_ctrl = running.clone();

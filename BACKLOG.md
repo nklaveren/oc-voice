@@ -110,7 +110,7 @@ Duas partes:
 
 **Aceite:** com um pânico injetado em `run_audio_pipeline`, o overlay mostra estado de falha em vez de silêncio. `clippy::unwrap_used` negado nos módulos do caminho de áudio.
 
-### M0.3 — Renomear o binário
+### M0.3 — Renomear o binário ✅ `7859cf9`
 
 `oc-voice-poc` não é mais um POC, e o nome vai aparecer para todo mundo que instalar. Trocar para `oc-voice` em [`Cargo.toml`](Cargo.toml) e nas receitas do [`justfile`](justfile).
 

@@ -5,7 +5,7 @@ edition = "2021"
 description = "Voice -> text -> opencode TUI bridge"
 
 [[bin]]
-name = "oc-voice-poc"
+name = "oc-voice"
 path = "src/main.rs"
 
 [dependencies]
