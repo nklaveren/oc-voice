@@ -66,7 +66,7 @@ Junto vai um requisito que M3.1 depende: todo processo externo (`hyprctl`, `wtyp
 
 **Aceite:** `just limits` passa — é o gate que verifica o teto de 400 linhas por arquivo, e ele já está vermelho hoje por causa do `main.rs`. `just check` verde (roda `limits`, `check`, `clippy`, `fmt` e `test`). Zero mudança de comportamento — o binário roda igual.
 
-### M0.4 — Gates de conformidade ✅ `e5bb877`
+### M0.4 — Gates de conformidade ✅ `1db6aad`
 
 O teto de 400 linhas virou `just limits` porque critério escrito em prosa ninguém roda. Dois outros critérios deste backlog estão na mesma situação.
 
