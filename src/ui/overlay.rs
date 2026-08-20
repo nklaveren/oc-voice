@@ -46,13 +46,16 @@ struct OverlayApp {
     running: Arc<AtomicBool>,
     settings: Arc<Mutex<AppSettings>>,
     config: Arc<crate::config::Config>,
-    partial: String,
-    finals: Vec<String>,
-    buffered: usize,
+    pub(super) partial: String,
+    pub(super) finals: Vec<String>,
+    pub(super) buffered: usize,
     show_settings: bool,
-    pipeline_failed: bool,
+    pub(super) pipeline_failed: bool,
     /// Display-only translation of the most recent final (M7.2).
-    translated: Option<String>,
+    pub(super) translated: Option<String>,
+    /// When a session is recording, and how many lines it holds (M7.1).
+    /// Recording without a visible indication is not acceptable.
+    pub(super) recording: Option<(std::time::Instant, usize)>,
 }
 
 const LANGUAGES: &[&str] = &["auto", "pt", "en", "es", "fr", "de", "ja", "zh"];
@@ -75,6 +78,7 @@ impl OverlayApp {
             show_settings: false,
             pipeline_failed: false,
             translated: None,
+            recording: None,
         }
     }
 
@@ -92,104 +96,10 @@ impl OverlayApp {
             .vocab(&lang)
             .and_then(|v| v.send.first().cloned())
     }
-
-    fn drain_events(&mut self) {
-        loop {
-            let event = match self.rx.try_recv() {
-                Ok(event) => event,
-                Err(crossbeam_channel::TryRecvError::Empty) => break,
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    // The sender lives in the pipeline thread; a disconnect means
-                    // the thread died (panic or error) while we are still running.
-                    self.pipeline_failed = true;
-                    break;
-                }
-            };
-            match event {
-                TranscriptEvent::Partial(s) => self.partial = s,
-                TranscriptEvent::PartialCleared => self.partial.clear(),
-                TranscriptEvent::Final(s) => {
-                    self.partial.clear();
-                    self.translated = None;
-                    self.finals.push(s);
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
-                }
-                TranscriptEvent::Buffered(n) => {
-                    self.partial.clear();
-                    self.buffered = n;
-                }
-                TranscriptEvent::Sent(s) => {
-                    self.partial.clear();
-                    self.buffered = 0;
-                    self.finals.push(format!("[sent] {s}"));
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
-                }
-                TranscriptEvent::Translated(t) => {
-                    // Shown under the original; the original stays visible so
-                    // what was actually said is never replaced by a guess.
-                    self.translated = Some(t);
-                }
-                TranscriptEvent::AwaitingConfirmation(what) => {
-                    self.partial.clear();
-                    self.finals.push(format!("[confirm?] {what}"));
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
-                }
-                TranscriptEvent::ConfirmationCancelled => {
-                    self.partial.clear();
-                    self.finals.push("[confirm?] cancelled".to_string());
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
-                }
-                TranscriptEvent::Newline => {
-                    self.partial.clear();
-                    self.finals.push("[newline]".to_string());
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
-                }
-                TranscriptEvent::Cancelled => {
-                    self.partial.clear();
-                    self.buffered = 0;
-                    self.finals.push("[cancelled] buffer cleared".to_string());
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
-                }
-                TranscriptEvent::SentTo(_, target, score) => {
-                    self.partial.clear();
-                    self.buffered = 0;
-                    // M2.3: the overlay shows where the text went and how sure
-                    // the resolver was.
-                    self.finals.push(format!("[sent_to] {target} ({score:.2})"));
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
-                }
-            }
-        }
-    }
 }
+
+#[path = "overlay_events.rs"]
+mod events;
 
 impl eframe::App for OverlayApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -223,6 +133,27 @@ impl eframe::App for OverlayApp {
 
             ui.vertical(|ui| {
                 ui.set_width(ui.available_width());
+
+                if let Some((since, lines)) = self.recording {
+                    let secs = since.elapsed().as_secs();
+                    // Blinks so it cannot be mistaken for a static label.
+                    let dot = if secs % 2 == 0 {
+                        "\u{23fa}"
+                    } else {
+                        "\u{25cb}"
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{dot} GRAVANDO  {:02}:{:02}:{:02}  ({lines} falas)",
+                            secs / 3600,
+                            (secs % 3600) / 60,
+                            secs % 60
+                        ))
+                        .color(egui::Color32::from_rgb(255, 80, 80))
+                        .strong()
+                        .size(16.0),
+                    );
+                }
 
                 if self.pipeline_failed {
                     ui.label(

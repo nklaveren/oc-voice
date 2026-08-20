@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:48`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:166`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:52`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:166`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -151,7 +151,7 @@ A capacidade de **recusar** é o requisito central, não a de acertar. Um autoco
 
 Pipeline, nesta ordem:
 
-1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:102`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
+1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:108`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
 2. **Filtrar por contagem de palavras** — só entram na comparação candidatos com o mesmo número de palavras da fala. Este passo é o que separa comando de ditado, ver medição abaixo.
 3. **Pontuar** com Jaro-Winkler (`strsim`), limiar default 0.82.
 
@@ -196,7 +196,7 @@ Os templates moram no `commands.toml` junto do resto do vocabulário, porque a o
 
 ### M1.2 — Trocar as três comparações pelo matcher ✅ `57cacc2`
 
-Reescrever `classify` (`src/commands/mod.rs:48`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
+Reescrever `classify` (`src/commands/mod.rs:52`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
 
 Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **string inteira** normalizada. Existe uma guarda de ≤5 palavras sugerindo que frases curtas deveriam passar, mas na prática só a palavra sozinha funciona — "ok câmbio" cai como ditado.
 
@@ -204,7 +204,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração ✅ `4bec2b2`
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:58`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:61`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 
@@ -469,7 +469,7 @@ Documentar `just run-cpu` e medir a latência real de `large-v3-turbo` em CPU �
 
 Os modos de hoje misturam duas dimensões independentes: **de onde vem o áudio** (microfone ou sistema) e **o que fazer com ele** (ditar, comandar, transcrever, traduzir). `Translate` é o sintoma: o nome promete tradução, mas o que ele faz é *capturar áudio do sistema e pedir o task translate do whisper*. Separar as duas dimensões é o que destrava os dois itens abaixo.
 
-### M7.1 — Sessão gravada com relatório
+### M7.1 — Sessão gravada com relatório ✅
 
 Hoje o overlay mostra as últimas quatro linhas e esquece o resto. Para acompanhar uma reunião é preciso o oposto: capturar tudo, do início ao fim, e produzir um documento no final.
 
@@ -483,7 +483,7 @@ Isso é ortogonal à fonte: deve funcionar gravando o microfone (uma ideia falad
 
 **Aceite:** abrir sessão, falar em três momentos separados, encerrar, e o arquivo conter as três falas com timestamps plausíveis. Sessão aberta sem indicação no overlay reprova o item.
 
-### M7.2 — Tradução para leitura, com o original preservado
+### M7.2 — Tradução para leitura, com o original preservado ✅
 
 **O whisper não faz o que o modo prometia.** Ele tem duas tarefas: `transcribe`, que devolve o idioma da fonte, e `translate`, que devolve **inglês, e só inglês** — não existe alvo configurável. O `language` é dica da *fonte*, não destino, e o comentário do `whisper-rs` que afirma o contrário está errado. Numa reunião em inglês, `translate` é operação nula; e com um idioma fixo na UI o whisper era instruído a decodificar inglês como português, devolvendo ruído (`.`, `O que é?`). Corrigido em `7716073`: em Translate a fonte é sempre detectada.
 

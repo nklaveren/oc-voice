@@ -21,6 +21,7 @@ mod input;
 mod pipeline;
 mod probe;
 mod process;
+mod session;
 mod translate;
 mod ui;
 mod wm;
@@ -77,6 +78,10 @@ pub enum TranscriptEvent {
     /// In Enter mode: text was sent to a specific window target.
     /// Text, resolved window class, resolution score (M2.3).
     SentTo(String, String, f64),
+    /// A recorded session opened (M7.1).
+    SessionStarted,
+    /// It closed: where the file landed, and how many lines it holds.
+    SessionStopped(String, usize),
     /// Display-only translation of the previous Final (M7.2). Never written
     /// to a session record — the original is the record.
     Translated(String),

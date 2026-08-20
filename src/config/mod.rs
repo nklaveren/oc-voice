@@ -48,6 +48,10 @@ pub struct LangVocab {
     pub newline: Vec<String>,
     /// Spoken prefixes that carry a window target: "envia para <alvo>".
     pub send_to: Vec<String>,
+    /// Open a recorded session (M7.1).
+    pub session_start: Vec<String>,
+    /// Close it and write the file.
+    pub session_stop: Vec<String>,
     pub confirm: Vec<String>,
     pub deny: Vec<String>,
     pub numbers: HashMap<String, u32>,

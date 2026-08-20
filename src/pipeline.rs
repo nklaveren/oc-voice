@@ -65,6 +65,7 @@ pub fn run_audio_pipeline(
     // One lock per pipeline run: the source language is a property of the
     // session, not of a single utterance.
     let mut lang_lock = asr::LanguageLock::default();
+    let mut recording: Option<crate::session::Session> = None;
 
     // Dynamic capture management: start/stop capture threads based on mode
     let mut capture_running_flag = Arc::new(AtomicBool::new(true));
@@ -187,6 +188,46 @@ pub fn run_audio_pipeline(
                     if mode == TranscribeMode::Translate {
                         crate::translate::request(&translator, trimmed);
                     }
+
+                    // M7.1: session control is checked before mode routing,
+                    // so "grava" works from any mode; and the ORIGINAL text is
+                    // what gets recorded, never the translation.
+                    let vocab = config::active_vocab(&config, &settings);
+                    match vocab.and_then(|v| commands::classify(trimmed, v, config.threshold())) {
+                        Some(commands::VoiceCommand::SessionStart) if recording.is_none() => {
+                            let source = if mode == TranscribeMode::Translate {
+                                "system"
+                            } else {
+                                "mic"
+                            };
+                            recording = Some(crate::session::Session::start(source));
+                            emit(&tx, TranscriptEvent::SessionStarted);
+                            segment.reset();
+                            continue;
+                        }
+                        Some(commands::VoiceCommand::SessionStop) => {
+                            if let Some(s) = recording.take() {
+                                let dir = crate::session::default_dir();
+                                match s.write(&dir) {
+                                    Ok(path) => emit(
+                                        &tx,
+                                        TranscriptEvent::SessionStopped(
+                                            path.display().to_string(),
+                                            s.line_count(),
+                                        ),
+                                    ),
+                                    Err(e) => error!(error = ?e, "failed to write session"),
+                                }
+                                segment.reset();
+                                continue;
+                            }
+                        }
+                        _ => {}
+                    }
+                    if let Some(ref mut s) = recording {
+                        let lang = lock_settings(&settings).detected_language.clone();
+                        s.push(trimmed, lang.as_deref());
+                    }
                     commands::route_final(
                         mode,
                         trimmed,
@@ -220,6 +261,46 @@ pub fn run_audio_pipeline(
                     // the translation is display-only and arrives async.
                     if mode == TranscribeMode::Translate {
                         crate::translate::request(&translator, trimmed);
+                    }
+
+                    // M7.1: session control is checked before mode routing,
+                    // so "grava" works from any mode; and the ORIGINAL text is
+                    // what gets recorded, never the translation.
+                    let vocab = config::active_vocab(&config, &settings);
+                    match vocab.and_then(|v| commands::classify(trimmed, v, config.threshold())) {
+                        Some(commands::VoiceCommand::SessionStart) if recording.is_none() => {
+                            let source = if mode == TranscribeMode::Translate {
+                                "system"
+                            } else {
+                                "mic"
+                            };
+                            recording = Some(crate::session::Session::start(source));
+                            emit(&tx, TranscriptEvent::SessionStarted);
+                            segment.reset();
+                            continue;
+                        }
+                        Some(commands::VoiceCommand::SessionStop) => {
+                            if let Some(s) = recording.take() {
+                                let dir = crate::session::default_dir();
+                                match s.write(&dir) {
+                                    Ok(path) => emit(
+                                        &tx,
+                                        TranscriptEvent::SessionStopped(
+                                            path.display().to_string(),
+                                            s.line_count(),
+                                        ),
+                                    ),
+                                    Err(e) => error!(error = ?e, "failed to write session"),
+                                }
+                                segment.reset();
+                                continue;
+                            }
+                        }
+                        _ => {}
+                    }
+                    if let Some(ref mut s) = recording {
+                        let lang = lock_settings(&settings).detected_language.clone();
+                        s.push(trimmed, lang.as_deref());
                     }
                     commands::route_final(
                         mode,

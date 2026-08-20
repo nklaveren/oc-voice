@@ -21,6 +21,10 @@ pub fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
             write_stdout(&format!("\r\x1b[2K[sent_to]  {target} ({score:.2})\n"))
         }
         TranscriptEvent::Translated(s) => write_stdout(&format!("\r\x1b[2K[pt]      {s}\n")),
+        TranscriptEvent::SessionStarted => write_stdout("\r\x1b[2K[sessão]  gravando\n"),
+        TranscriptEvent::SessionStopped(path, lines) => {
+            write_stdout(&format!("\r\x1b[2K[sessão]  {lines} falas -> {path}\n"))
+        }
         TranscriptEvent::AwaitingConfirmation(what) => {
             write_stdout(&format!("\r\x1b[2K[confirm?] {what}\n"))
         }

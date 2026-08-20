@@ -17,6 +17,10 @@ pub enum VoiceCommand {
     Newline,
     #[serde(rename = "send_to")]
     SendTo { target: String },
+    #[serde(rename = "session_start")]
+    SessionStart,
+    #[serde(rename = "session_stop")]
+    SessionStop,
     #[serde(rename = "dictation")]
     Dictation,
 }
@@ -65,6 +69,8 @@ pub fn classify(
         (&vocab.send, VoiceCommand::Send),
         (&vocab.cancel, VoiceCommand::Cancel),
         (&vocab.newline, VoiceCommand::Newline),
+        (&vocab.session_start, VoiceCommand::SessionStart),
+        (&vocab.session_stop, VoiceCommand::SessionStop),
     ] {
         let refs: Vec<&str> = words.iter().map(String::as_str).collect();
         if matcher::match_exact(text, &refs, threshold).is_some() {

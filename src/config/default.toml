@@ -16,6 +16,8 @@ send_to = ["enviar para", "envia para", "enviar pelo", "envia pelo", "enviar via
 send = ["câmbio", "envia", "manda", "pronto"]
 cancel = ["cancela", "limpa", "descarta"]
 newline = ["nova linha", "pula linha"]
+session_start = ["grava", "gravar", "gravar sessão", "inicia sessão"]
+session_stop = ["encerra", "encerrar", "encerra sessão", "para de gravar"]
 confirm = ["confirma", "sim"]
 deny = ["não", "cancela"]
 
@@ -118,6 +120,8 @@ send_to = ["send to", "send via"]
 send = ["send", "over", "done"]
 cancel = ["cancel", "clear", "discard"]
 newline = ["new line"]
+session_start = ["record", "start recording", "start session"]
+session_stop = ["stop recording", "end session"]
 confirm = ["confirm", "yes"]
 deny = ["no", "cancel"]
 

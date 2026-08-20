@@ -38,6 +38,8 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 # en->pt translation for the overlay (M7.2); model converted by `just fetch-mt`
 ct2rs = "0.9"
+# session timestamps (M7.1)
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # string similarity for the command matcher (Jaro-Winkler) — M1.1
 strsim = "0.11"
 # overlay GUI (floating subtitle-style window)
