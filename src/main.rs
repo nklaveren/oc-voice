@@ -29,7 +29,6 @@ mod wm;
 use process::{CommandRunner, SystemRunner};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tracing::{error, info};
 use ui::overlay::run_overlay;
 use ui::stdout::emit;
@@ -42,21 +41,8 @@ const VAD_FRAME_SAMPLES: usize = 512;
 /// Lower = more sensitive (catches weak syllables, breathing pauses),
 /// higher = more conservative (less hallucination from background noise).
 const VAD_SPEECH_THRESHOLD: f32 = 0.55;
-/// how many consecutive non-speech frames until we emit final and reset.
-/// 20 frames * 32 ms ~= 640 ms of silence before closing a segment.
-const VAD_HANG_FRAMES: usize = 20;
-/// Enter mode is more tolerant to pauses while composing the buffer.
-/// 30 frames * 32 ms ~= 960 ms of silence before closing a segment.
-const VAD_HANG_FRAMES_ENTER: usize = 30;
 /// minimum accumulated speech before we bother with a partial transcription
 const PARTIAL_MIN_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * 600 / 1000; // 600 ms
-/// how often to emit partial while speaking
-const PARTIAL_EVERY: Duration = Duration::from_millis(800);
-/// In Enter mode we want a steadier, less flickery partial. Longer window
-/// between partial refreshes avoids the "cutting too fast" feeling.
-const PARTIAL_EVERY_ENTER: Duration = Duration::from_millis(900);
-/// cap the size of one segment so we don't blow up on very long utterances
-const SEGMENT_MAX_SAMPLES: usize = TARGET_SAMPLE_RATE as usize * 20; // 20 s
 /// whisper wants at least 1 s of audio; shorter inputs get padded with silence
 pub const MIN_TRANSCRIBE_SAMPLES: usize = TARGET_SAMPLE_RATE as usize; // 1 s
 

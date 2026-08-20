@@ -18,9 +18,8 @@ use crate::config;
 use crate::process::CommandRunner;
 use crate::ui::stdout::emit;
 use crate::{
-    lock_settings, AppSettings, TranscribeMode, TranscriptEvent, PARTIAL_EVERY,
-    PARTIAL_EVERY_ENTER, PARTIAL_MIN_SAMPLES, SEGMENT_MAX_SAMPLES, TARGET_SAMPLE_RATE,
-    VAD_FRAME_SAMPLES, VAD_HANG_FRAMES, VAD_HANG_FRAMES_ENTER, VAD_SPEECH_THRESHOLD,
+    lock_settings, AppSettings, TranscribeMode, TranscriptEvent, PARTIAL_MIN_SAMPLES,
+    TARGET_SAMPLE_RATE, VAD_FRAME_SAMPLES, VAD_SPEECH_THRESHOLD,
 };
 
 /// Owns whisper, VAD, cpal, and runs the main transcription loop.
@@ -137,10 +136,16 @@ pub fn run_audio_pipeline(
             // Per-mode tunables: Enter mode tolerates longer pauses and emits
             // partials less often so the overlay doesn't flicker while the
             // user thinks between sentences.
-            let (hang_frames, partial_every) = match mode {
-                TranscribeMode::Enter => (VAD_HANG_FRAMES_ENTER, PARTIAL_EVERY_ENTER),
-                _ => (VAD_HANG_FRAMES, PARTIAL_EVERY),
-            };
+            // Following someone else speak and speaking yourself want
+            // opposite segmentation. A meeting rarely offers the 640 ms of
+            // silence the old default waited for, so every segment ran to the
+            // 20 s cap: a wall of text that also mixed several speakers into
+            // one block. Both profiles live in commands.toml.
+            let seg_cfg = config.segmentation(mode == TranscribeMode::Translate);
+            let hang_frames =
+                (seg_cfg.hang_ms as usize * TARGET_SAMPLE_RATE as usize / 1000) / VAD_FRAME_SAMPLES;
+            let partial_every = Duration::from_millis(seg_cfg.partial_every_ms);
+            let max_samples = seg_cfg.max_seconds as usize * TARGET_SAMPLE_RATE as usize;
 
             if segment.speaking()
                 && segment.samples.len() >= PARTIAL_MIN_SAMPLES
@@ -245,7 +250,7 @@ pub fn run_audio_pipeline(
                 segment.reset();
             }
 
-            if segment.samples.len() > SEGMENT_MAX_SAMPLES {
+            if segment.samples.len() > max_samples {
                 let text = asr::transcribe_locked(
                     &mut state,
                     &segment.samples,

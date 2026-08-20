@@ -166,21 +166,53 @@ impl eframe::App for OverlayApp {
                     );
                 }
 
-                for line in &self.finals {
-                    ui.label(
-                        egui::RichText::new(line)
-                            .color(egui::Color32::WHITE)
-                            .size(18.0),
-                    );
-                }
-                if !self.partial.is_empty() {
-                    ui.label(
-                        egui::RichText::new(&self.partial)
-                            .color(egui::Color32::from_gray(180))
-                            .italics()
-                            .size(18.0),
-                    );
-                }
+                // Scrollback, pinned to the bottom: a meeting produces far
+                // more lines than fit, and the newest must stay visible
+                // without the user chasing it.
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        for line in &self.finals {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(line)
+                                        .color(egui::Color32::WHITE)
+                                        .size(18.0),
+                                )
+                                // Without this, long utterances are cut at the
+                                // window edge instead of wrapping.
+                                .wrap(),
+                            );
+                        }
+
+                        // M7.2: the translation sits under the last original,
+                        // tinted and marked, so it is never mistaken for what
+                        // was said. The original stays on screen.
+                        if let Some(ref pt) = self.translated {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(format!("\u{21b3} {pt}"))
+                                        .color(egui::Color32::from_rgb(120, 200, 255))
+                                        .size(18.0),
+                                )
+                                .wrap(),
+                            );
+                        }
+                        if !self.partial.is_empty() {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&self.partial)
+                                        .color(egui::Color32::from_gray(180))
+                                        .italics()
+                                        .size(18.0),
+                                )
+                                .wrap(),
+                            );
+                        }
+                    });
+
                 if self.finals.is_empty() && self.partial.is_empty() && self.buffered == 0 {
                     let hint = match self.send_word() {
                         Some(w) => {
@@ -289,6 +321,41 @@ mod tests {
         assert_eq!(m.next(), start, "cycle must close after all four");
         assert!(seen.contains(&TranscribeMode::Command));
         assert!(seen.contains(&TranscribeMode::Translate));
+    }
+
+    #[test]
+    fn a_translation_event_reaches_renderable_state() {
+        // This is the test that would have caught shipping M7.2 with the
+        // state wired and the drawing missing: the worker translated, the
+        // event arrived, the field was set, and nothing rendered it.
+        let (mut app, tx) = app_with_channel();
+        tx.send(TranscriptEvent::Final("They should have a parent.".into()))
+            .unwrap();
+        tx.send(TranscriptEvent::Translated("Eles devem ter um pai.".into()))
+            .unwrap();
+        app.drain_events();
+        assert_eq!(
+            app.translated.as_deref(),
+            Some("Eles devem ter um pai."),
+            "translation must survive into the state the UI draws from"
+        );
+        // And the original is still there: translation adds, never replaces.
+        assert!(app
+            .finals
+            .iter()
+            .any(|l| l.contains("They should have a parent.")));
+    }
+
+    #[test]
+    fn a_new_utterance_clears_the_previous_translation() {
+        // Otherwise a stale Portuguese line sits under a fresh English one.
+        let (mut app, tx) = app_with_channel();
+        tx.send(TranscriptEvent::Translated("antiga".into()))
+            .unwrap();
+        tx.send(TranscriptEvent::Final("something new".into()))
+            .unwrap();
+        app.drain_events();
+        assert!(app.translated.is_none());
     }
 
     #[test]

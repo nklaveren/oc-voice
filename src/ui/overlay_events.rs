@@ -6,7 +6,19 @@
 use super::OverlayApp;
 use crate::TranscriptEvent;
 
+/// A meeting is an hour of talking; four lines of scrollback was a debugging
+/// default that survived into a subtitle window. Kept bounded so memory does
+/// not grow without limit on a long session.
+const MAX_HISTORY: usize = 400;
+
 impl OverlayApp {
+    fn trim_history(&mut self) {
+        if self.finals.len() > MAX_HISTORY {
+            let excess = self.finals.len() - MAX_HISTORY;
+            self.finals.drain(..excess);
+        }
+    }
+
     pub(super) fn drain_events(&mut self) {
         loop {
             let event = match self.rx.try_recv() {
@@ -29,11 +41,7 @@ impl OverlayApp {
                         *n += 1;
                     }
                     self.finals.push(s);
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
+                    self.trim_history();
                 }
                 TranscriptEvent::Buffered(n) => {
                     self.partial.clear();
@@ -43,11 +51,7 @@ impl OverlayApp {
                     self.partial.clear();
                     self.buffered = 0;
                     self.finals.push(format!("[sent] {s}"));
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
+                    self.trim_history();
                 }
                 TranscriptEvent::SessionStarted => {
                     self.partial.clear();
@@ -65,39 +69,23 @@ impl OverlayApp {
                 TranscriptEvent::AwaitingConfirmation(what) => {
                     self.partial.clear();
                     self.finals.push(format!("[confirm?] {what}"));
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
+                    self.trim_history();
                 }
                 TranscriptEvent::ConfirmationCancelled => {
                     self.partial.clear();
                     self.finals.push("[confirm?] cancelled".to_string());
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
+                    self.trim_history();
                 }
                 TranscriptEvent::Newline => {
                     self.partial.clear();
                     self.finals.push("[newline]".to_string());
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
+                    self.trim_history();
                 }
                 TranscriptEvent::Cancelled => {
                     self.partial.clear();
                     self.buffered = 0;
                     self.finals.push("[cancelled] buffer cleared".to_string());
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
+                    self.trim_history();
                 }
                 TranscriptEvent::SentTo(_, target, score) => {
                     self.partial.clear();
@@ -105,11 +93,7 @@ impl OverlayApp {
                     // M2.3: the overlay shows where the text went and how sure
                     // the resolver was.
                     self.finals.push(format!("[sent_to] {target} ({score:.2})"));
-                    let max_keep = 4;
-                    if self.finals.len() > max_keep {
-                        let excess = self.finals.len() - max_keep;
-                        self.finals.drain(..excess);
-                    }
+                    self.trim_history();
                 }
             }
         }

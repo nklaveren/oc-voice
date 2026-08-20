@@ -80,6 +80,32 @@ navegador = ["firefox", "brave", "chromium"]
 Set `require_prefix = true` in a language section to only accept commands
 that start with the prefix word ("computador, câmbio").
 
+### Segmentation
+
+How long an utterance runs before it is finalized. Following someone else
+speak and speaking yourself want opposite settings, so there are two
+profiles — and both are config, not code, because the right values depend on
+how the people around you actually talk:
+
+```toml
+[segmentation.dictation]   # you, into a window
+hang_ms = 960              # silence before the utterance is considered done
+max_seconds = 20           # hard cap when no pause ever comes
+partial_every_ms = 900
+
+[segmentation.subtitle]    # a meeting, a video — Translate mode
+hang_ms = 320
+max_seconds = 8
+partial_every_ms = 700
+```
+
+A meeting rarely offers 960 ms of silence, so a dictation-tuned `hang_ms`
+runs every segment to the cap and produces a wall of text that also mixes
+several speakers into one block. Shorter `hang_ms` catches the brief pause at
+a speaker change, which gives phrase-sized subtitles and one voice per
+segment. If subtitles feel chopped mid-sentence, raise it; if they arrive in
+paragraphs, lower it.
+
 ## Requirements
 
 - **NixOS with flakes** (the dev shell provides the whole toolchain)
