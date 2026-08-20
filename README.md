@@ -125,12 +125,19 @@ Measured with `large-v3-turbo` Q8 on this repo's ignored benchmark
 | Build | 3 s of audio | Model load | Hardware |
 |---|---|---|---|
 | CUDA (default) | **238–354 ms** | 2.8 s | RTX 3070 Ti Laptop |
-| CPU (`just run-cpu`) | **~51 s** | 1.6 s | i7-12700H, 20 threads |
+| CPU (`just run-cpu`) | ~51 s* | 1.6 s | i7-12700H, 20 threads |
 
-The verdict is unambiguous: `large-v3-turbo` on this CPU runs 17× slower than
-realtime and cannot drive live partials. If you have no NVIDIA GPU, swap
-`model_name` in the `justfile` for `ggml-small` or `ggml-base` — smaller
-models trade accuracy for a realtime-capable CPU path.
+\* **Measured on a contended machine** — a low power profile was active and a
+SQL Server VM was running, so treat it as a lower bound on what the CPU path
+can do, not as this CPU's capability. The benchmark now prints the power
+profile, RAPL limit and load average alongside the timing, and warns when the
+load makes the number unrepresentative; re-run it on an idle machine before
+quoting it.
+
+The direction still holds: `large-v3-turbo` is far from realtime on CPU and
+cannot drive live partials. Without an NVIDIA GPU, swap `model_name` in the
+`justfile` for `ggml-small` or `ggml-base` — smaller models trade accuracy
+for a realtime-capable CPU path.
 
 ## Hyprland window rules (recommended)
 

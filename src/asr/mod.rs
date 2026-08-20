@@ -181,6 +181,38 @@ impl SpeechSegment {
 
 #[cfg(test)]
 mod tests {
+    /// Print what the machine was doing during the run. A latency number
+    /// without its conditions misleads later: the first CPU measurement of
+    /// this benchmark was taken under a 40 W power cap with a SQL Server VM
+    /// running, and got published as a hardware verdict.
+    fn report_conditions() {
+        let read = |p: &str| {
+            std::fs::read_to_string(p)
+                .ok()
+                .map(|s| s.trim().to_string())
+        };
+        println!(
+            "  perfil: {}   governor: {}",
+            read("/sys/firmware/acpi/platform_profile").unwrap_or_else(|| "?".into()),
+            read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+                .unwrap_or_else(|| "?".into())
+        );
+        if let Some(w) = read("/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw")
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            println!("  limite RAPL: {} W", w / 1_000_000);
+        }
+        if let Some(load) = read("/proc/loadavg") {
+            let first = load.split_whitespace().next().unwrap_or("?");
+            println!("  load average: {first}");
+            if first.parse::<f32>().unwrap_or(0.0) > 2.0 {
+                println!(
+                    "  AVISO: máquina ocupada — este número não representa a máquina em repouso"
+                );
+            }
+        }
+    }
+
     /// Latency measurement for M5.4 — run explicitly, needs the model:
     ///   OC_VOICE_MODEL=models/ggml-large-v3-turbo-q8_0.bin \
     ///   cargo test --release [--no-default-features --features cpu] \
@@ -193,6 +225,7 @@ mod tests {
     fn measure_transcribe_latency() {
         use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
         let model = std::env::var("OC_VOICE_MODEL").expect("set OC_VOICE_MODEL");
+        report_conditions();
         let load_start = std::time::Instant::now();
         let ctx = WhisperContext::new_with_params(&model, WhisperContextParameters::default())
             .expect("model loads");
