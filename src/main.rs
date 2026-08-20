@@ -16,6 +16,7 @@ mod audio;
 mod commands;
 mod config;
 mod input;
+mod probe;
 mod process;
 mod ui;
 mod wm;
@@ -128,9 +129,15 @@ fn main() -> Result<()> {
         )
         .init();
 
-    let model_path = std::env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow!("usage: oc-voice <path-to-ggml-model.bin>"))?;
+    let model_path = std::env::args().nth(1).ok_or_else(|| {
+        anyhow!("usage: oc-voice <path-to-ggml-model.bin> | oc-voice probe [lang]")
+    })?;
+
+    // Diagnostic REPL: no whisper, no audio, nothing dispatched.
+    if model_path == "probe" {
+        probe::run();
+        return Ok(());
+    }
 
     let running = Arc::new(AtomicBool::new(true));
     let running_ctrl = running.clone();

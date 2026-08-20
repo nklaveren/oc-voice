@@ -23,6 +23,14 @@ fetch-model:
 build:
     cargo build --release
 
+# Interactive matcher probe: type utterances, see the whole decision chain
+# with scores. Reads live windows/monitors; never dispatches or types.
+probe:
+    cargo run --release -- probe
+
+probe-en:
+    cargo run --release -- probe en
+
 run: fetch-model
     cargo run --release -- {{ models_dir }}/{{ model_name }}
 

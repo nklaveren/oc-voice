@@ -86,7 +86,11 @@ pub fn resolve(
     windows: &[WindowInfo],
     threshold: f64,
 ) -> Option<ResolvedTarget> {
-    let spoken_norm = matcher::normalize(spoken);
+    // Spoken targets arrive with articles attached — "envia para O
+    // navegador" hands us "o navegador". Resolution works on content tokens:
+    // sub-3-char words are articles or noise either way.
+    let spoken_tokens = tokens(spoken);
+    let spoken_norm = spoken_tokens.join(" ");
     if spoken_norm.is_empty() {
         return None;
     }
@@ -94,7 +98,7 @@ pub fn resolve(
     // Stage 1: category. The spoken word names a kind of application; whoever
     // from that kind is open wins.
     let category_names: Vec<&str> = categories.keys().map(String::as_str).collect();
-    if let Some((category, _)) = matcher::match_exact(spoken, &category_names, threshold) {
+    if let Some((category, _)) = matcher::match_exact(&spoken_norm, &category_names, threshold) {
         for pattern in &categories[category] {
             let pattern_norm = matcher::normalize(pattern);
             for w in windows {
@@ -112,12 +116,19 @@ pub fn resolve(
         }
     }
 
-    // Stage 2: direct token match against class (stable, normal threshold)
-    // and title (volatile, harder threshold).
+    // Stage 2: every spoken content token against every window token, best
+    // pair wins — "o navegador" must match by its "navegador", and a token
+    // of a long title must be reachable by a single spoken word.
     let mut best: Option<ResolvedTarget> = None;
     for w in windows {
-        let class_score = best_token_score(&spoken_norm, &w.class);
-        let title_score = best_token_score(&spoken_norm, &w.title);
+        let class_score = spoken_tokens
+            .iter()
+            .map(|t| best_token_score(t, &w.class))
+            .fold(0.0, f64::max);
+        let title_score = spoken_tokens
+            .iter()
+            .map(|t| best_token_score(t, &w.title))
+            .fold(0.0, f64::max);
         let score = f64::max(
             if class_score >= threshold {
                 class_score
@@ -177,6 +188,15 @@ mod tests {
         assert_eq!(resolve_pt("teams").unwrap().class, "electron");
         assert_eq!(resolve_pt("brave").unwrap().class, "brave-browser");
         assert_eq!(resolve_pt("remmina").unwrap().class, "org.remmina.Remmina");
+    }
+
+    #[test]
+    fn articles_do_not_break_resolution() {
+        // The probe caught this live: "envia para o navegador" hands the
+        // resolver "o navegador", and the article broke both stages.
+        assert_eq!(resolve_pt("o navegador").unwrap().class, "brave-browser");
+        assert_eq!(resolve_pt("o terminal").unwrap().class, "Alacritty");
+        assert_eq!(resolve_pt("o teams").unwrap().class, "electron");
     }
 
     #[test]
