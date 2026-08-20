@@ -59,6 +59,9 @@ pub struct LangVocab {
     pub targets: HashMap<String, Vec<String>>,
     /// User-defined monitor aliases, e.g. `principal = "DP-1"` (M3.1).
     pub monitors: HashMap<String, String>,
+    /// Spoken phrase to language-neutral mode name (M4.2), so the mode can be
+    /// changed without reaching for the overlay's button.
+    pub modes: HashMap<String, String>,
     /// Whole-utterance WM commands: spoken words → action name (M3.1).
     pub wm_commands: HashMap<String, String>,
     /// Slotted WM patterns (M3.1).

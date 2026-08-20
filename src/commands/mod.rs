@@ -21,6 +21,10 @@ pub enum VoiceCommand {
     SessionStart,
     #[serde(rename = "session_stop")]
     SessionStop,
+    /// Switch transcription mode by voice, from any mode (M4.2). The value
+    /// is the language-neutral mode name from the vocabulary.
+    #[serde(rename = "set_mode")]
+    SetMode(String),
     #[serde(rename = "dictation")]
     Dictation,
 }
@@ -76,6 +80,13 @@ pub fn classify(
         if matcher::match_exact(text, &refs, threshold).is_some() {
             return Some(command);
         }
+    }
+
+    // Mode switching: spoken phrase to language-neutral mode name. Checked
+    // before send-to so "modo comando" is never read as a window target.
+    let mode_phrases: Vec<&str> = vocab.modes.keys().map(String::as_str).collect();
+    if let Some((phrase, _)) = matcher::match_exact(text, &mode_phrases, threshold) {
+        return Some(VoiceCommand::SetMode(vocab.modes[phrase].clone()));
     }
 
     // Send-to: a spoken prefix from the vocabulary followed by the target

@@ -66,6 +66,15 @@ oito = 8
 nove = 9
 dez = 10
 
+# Trocar de modo sem tocar no overlay. O nome à direita é neutro de idioma.
+[pt.modes]
+"modo ditado" = "input"
+"modo texto" = "input"
+"modo comando" = "command"
+"modo mensagem" = "enter"
+"modo reunião" = "translate"
+"modo legenda" = "translate"
+
 [pt.directions]
 direita = "r"
 esquerda = "l"
@@ -166,6 +175,14 @@ seven = 7
 eight = 8
 nine = 9
 ten = 10
+
+[en.modes]
+"input mode" = "input"
+"dictation mode" = "input"
+"command mode" = "command"
+"message mode" = "enter"
+"meeting mode" = "translate"
+"subtitle mode" = "translate"
 
 [en.directions]
 right = "r"

@@ -234,7 +234,13 @@ fn advance(
     );
     // M7.2: the original goes to the record and the overlay; the translation
     // is display-only and arrives async.
-    if stream.translate {
+    //
+    // Not gated on the mode any more. Someone dictating in English wants what
+    // they said typed in English — and also wants to see it in Portuguese,
+    // which is the whole point when the reason for speaking English is to
+    // practise it. The installed model is en->pt, so English is the only
+    // source there is anything to do with.
+    if stream.translate || stream.lock.locked() == Some("en") {
         crate::translate::request(ctx.translator, &trimmed);
     }
 
@@ -343,8 +349,28 @@ fn session_control(source: Source, trimmed: &str, ctx: &mut Ctx<'_>) -> bool {
     match vocab.and_then(|v| commands::classify(trimmed, v, ctx.config.threshold())) {
         Some(commands::VoiceCommand::SessionStart) => start_session(source, ctx.recording, ctx.tx),
         Some(commands::VoiceCommand::SessionStop) => stop_session(ctx.recording, ctx.tx),
+        Some(commands::VoiceCommand::SetMode(name)) => switch_mode(&name, ctx),
         _ => false,
     }
+}
+
+/// Change transcription mode by voice. Works from every mode, unlike the
+/// window-manager grammar, which only runs in Command mode — a mode you
+/// cannot reach if you are stuck in another one without touching the mouse.
+fn switch_mode(name: &str, ctx: &mut Ctx<'_>) -> bool {
+    let Some(mode) = TranscribeMode::from_name(name) else {
+        error!(mode = name, "vocabulary names a mode that does not exist");
+        return false;
+    };
+    let mut settings = lock_settings(ctx.settings);
+    if settings.mode == mode {
+        return true;
+    }
+    settings.mode = mode;
+    drop(settings);
+    info!(?mode, "mode switched by voice");
+    emit(ctx.tx, TranscriptEvent::notice(format!("[modo] {name}")));
+    true
 }
 
 #[cfg(test)]

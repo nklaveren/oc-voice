@@ -141,6 +141,7 @@ refs:
     set -uo pipefail
     fail=0
     ref_re='`([A-Za-z0-9_./-]+\.[a-z0-9]+):([0-9]+)`'
+    bad_re='`([A-Za-z0-9_./-]+\.[a-z0-9]+):([^`0-9][^`]*)?`'
     for doc in *.md; do
         lineno=0
         while IFS= read -r line || [ -n "$line" ]; do
@@ -179,6 +180,15 @@ refs:
                     fail=1
                 fi
             done
+            # A reference whose line number is missing or not a number slips
+            # past ref_re entirely — the gate sees nothing and reports ok.
+            # Found by breaking one by hand: `src/commands/mod.rs:` passed.
+            # A gate that can be silenced by malforming its input is worse
+            # than no gate, because it is trusted.
+            if [[ $line =~ $bad_re ]]; then
+                echo "$doc:$lineno: \`${BASH_REMATCH[1]}:${BASH_REMATCH[2]}\` — malformed reference, expected file:line"
+                fail=1
+            fi
         done < <(awk '{ if (/^```/) { fenced = !fenced; print ""; next } if (fenced) print ""; else print }' "$doc")
     done
     if [ "$fail" -ne 0 ]; then

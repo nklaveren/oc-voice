@@ -225,7 +225,10 @@ pub fn execute_command(
         // Session control is handled in the pipeline, before mode routing, so
         // that "grava" works from any mode. Reaching here means the utterance
         // was already consumed there.
-        VoiceCommand::SessionStart | VoiceCommand::SessionStop => {}
+        // Session control and mode switching are handled ahead of routing,
+        // in the pipeline, so they work from every mode rather than only the
+        // one whose grammar happens to reach here.
+        VoiceCommand::SessionStart | VoiceCommand::SessionStop | VoiceCommand::SetMode(_) => {}
         VoiceCommand::Dictation => {
             // handled by caller — pushes to enter_buffer
         }

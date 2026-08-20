@@ -148,6 +148,17 @@ pub enum TranscribeMode {
 }
 
 impl TranscribeMode {
+    /// Resolve a language-neutral mode name from the vocabulary.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "input" => Some(TranscribeMode::Input),
+            "translate" => Some(TranscribeMode::Translate),
+            "enter" => Some(TranscribeMode::Enter),
+            "command" => Some(TranscribeMode::Command),
+            _ => None,
+        }
+    }
+
     /// The overlay button cycles modes in this order.
     pub fn next(self) -> Self {
         match self {
@@ -231,7 +242,11 @@ fn main() -> Result<()> {
     let (tx, rx) = crossbeam_channel::unbounded::<TranscriptEvent>();
 
     let settings = Arc::new(Mutex::new(AppSettings {
-        language: "pt".to_string(),
+        // "auto", not a fixed language. Whisper's `language` is the SOURCE
+        // hint: forcing "pt" onto English speech does not merely mis-decode
+        // it, it makes whisper emit Portuguese — the system silently
+        // translating you in a mode that is supposed to type what you said.
+        language: "auto".to_string(),
         mode: TranscribeMode::Enter,
         detected_language: None,
         session_request: None,

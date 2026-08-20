@@ -92,6 +92,61 @@ fn a_session_started_by_the_button_is_attributed_to_the_modes_own_voice() {
 }
 
 #[test]
+fn every_mode_is_reachable_by_voice() {
+    // The overlay's button cycles, which means reaching Command mode from
+    // Input costs three utterances of nothing. And a mode you can only leave
+    // with the mouse defeats the point of a voice tool.
+    let config = config::Config::embedded();
+    for lang in ["pt", "en"] {
+        let vocab = config.vocab(lang).expect("language ships a vocabulary");
+        let named: std::collections::HashSet<&str> =
+            vocab.modes.values().map(String::as_str).collect();
+        for mode in ["input", "translate", "enter", "command"] {
+            assert!(
+                named.contains(mode),
+                "{lang} has no spoken phrase for {mode} mode"
+            );
+        }
+        for name in &named {
+            assert!(
+                TranscribeMode::from_name(name).is_some(),
+                "{lang} names a mode {name:?} that does not exist"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_spoken_mode_phrase_classifies_as_a_mode_switch() {
+    let config = config::Config::embedded();
+    let vocab = config.vocab("pt").unwrap();
+    let cmd = commands::classify("modo comando", vocab, config.threshold());
+    assert!(
+        matches!(cmd, Some(commands::VoiceCommand::SetMode(ref m)) if m == "command"),
+        "got {cmd:?}"
+    );
+}
+
+#[test]
+fn dictation_is_never_mistaken_for_a_mode_switch() {
+    // The word-count gate plus the threshold should keep ordinary speech out,
+    // but this is the class of bug that silently eats a sentence.
+    let config = config::Config::embedded();
+    let vocab = config.vocab("pt").unwrap();
+    for spoken in [
+        "vamos combinar o modo de trabalho",
+        "o comando saiu errado",
+        "reunião amanhã",
+    ] {
+        let cmd = commands::classify(spoken, vocab, config.threshold());
+        assert!(
+            !matches!(cmd, Some(commands::VoiceCommand::SetMode(_))),
+            "{spoken:?} became a mode switch: {cmd:?}"
+        );
+    }
+}
+
+#[test]
 fn the_two_streams_do_not_share_a_language_lock() {
     // The failure this prevents: an English meeting pins `en`, and the next
     // Portuguese utterance from the mic is handed to whisper as English.
