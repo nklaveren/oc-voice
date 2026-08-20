@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use ringbuf::traits::*;
 use whisper_rs::{WhisperContext, WhisperContextParameters};
 
-use crate::asr::transcribe;
+use crate::asr::transcribe_with;
 use crate::audio::capture::run_capture;
 use crate::{AppSettings, TranscribeMode, TARGET_SAMPLE_RATE};
 
@@ -46,13 +46,135 @@ fn parse_blocks() -> Vec<Block> {
     blocks
 }
 
-/// Words, lowercased, stripped of punctuation — the unit WER counts.
+/// Words, lowercased, stripped of punctuation, with numbers normalized —
+/// the unit WER counts.
+///
+/// Whisper writes numbers as digits ("4", "3100", "2.14.0") where the
+/// reference spells them out ("quatro", "três mil e cem"). Comparing those
+/// literally scores a correct transcription as a wall of errors, which is
+/// what made the first numbers-block measurement meaningless. Both sides are
+/// reduced to digits before counting.
 fn words(text: &str) -> Vec<String> {
-    crate::commands::fold_diacritics(&text.to_lowercase())
-        .split(|c: char| !c.is_alphanumeric())
+    let folded = crate::commands::fold_diacritics(&text.to_lowercase());
+    let raw: Vec<String> = folded
+        .split(|c: char| !c.is_alphanumeric() && c != '.')
         .filter(|w| !w.is_empty())
         .map(str::to_string)
-        .collect()
+        .collect();
+    let mut out: Vec<String> = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        // Version numbers are spoken "dois ponto quatorze" and written
+        // "2.14"; the spoken separator has no written counterpart.
+        if (raw[i] == "ponto" || raw[i] == "virgula")
+            && !out.is_empty()
+            && out[out.len() - 1].chars().all(|c| c.is_ascii_digit())
+            && number_run(&raw[i + 1..]).is_some()
+        {
+            i += 1;
+            continue;
+        }
+        // Longest run of number words collapses into one digit token, so
+        // "tres mil e cem" and "3100" compare equal.
+        if let Some((value, consumed)) = number_run(&raw[i..]) {
+            out.push(value.to_string());
+            i += consumed;
+            continue;
+        }
+        // A digit string stays as-is; "2.14.0" splits into its parts.
+        for part in raw[i].split('.') {
+            if !part.is_empty() {
+                out.push(part.to_string());
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Value of the longest leading run of Portuguese number words, and how many
+/// tokens it consumed.
+///
+/// Composition in Portuguese needs a connector: "vinte e sete" is 27, but
+/// "um dois tres" is three separate numbers, not 6. So a run only extends
+/// across an explicit "e", or into "mil". Everything else ends the run.
+fn number_run(tokens: &[String]) -> Option<(u64, usize)> {
+    const UNITS: &[(&str, u64)] = &[
+        ("zero", 0),
+        ("um", 1),
+        ("uma", 1),
+        ("dois", 2),
+        ("duas", 2),
+        ("tres", 3),
+        ("quatro", 4),
+        ("cinco", 5),
+        ("seis", 6),
+        ("sete", 7),
+        ("oito", 8),
+        ("nove", 9),
+        ("dez", 10),
+        ("onze", 11),
+        ("doze", 12),
+        ("treze", 13),
+        ("quatorze", 14),
+        ("catorze", 14),
+        ("quinze", 15),
+        ("dezesseis", 16),
+        ("dezessete", 17),
+        ("dezoito", 18),
+        ("dezenove", 19),
+        ("vinte", 20),
+        ("trinta", 30),
+        ("quarenta", 40),
+        ("cinquenta", 50),
+        ("sessenta", 60),
+        ("setenta", 70),
+        ("oitenta", 80),
+        ("noventa", 90),
+        ("cem", 100),
+        ("cento", 100),
+        ("duzentos", 200),
+        ("trezentos", 300),
+        ("quatrocentos", 400),
+        ("quinhentos", 500),
+        ("seiscentos", 600),
+        ("setecentos", 700),
+        ("oitocentos", 800),
+        ("novecentos", 900),
+    ];
+    let value_of = |t: &String| UNITS.iter().find(|(w, _)| w == t).map(|(_, v)| *v);
+
+    let first = value_of(tokens.first()?)?;
+    let mut total: u64 = 0;
+    let mut current = first;
+    let mut consumed = 1usize;
+
+    loop {
+        let next = tokens.get(consumed);
+        match next.map(String::as_str) {
+            // "tres mil", "mil" on its own after a value
+            Some("mil") => {
+                total += current.max(1) * 1000;
+                current = 0;
+                consumed += 1;
+            }
+            // Connector: only continues the run if a number really follows.
+            Some("e") => match tokens.get(consumed + 1).and_then(&value_of) {
+                Some(v) => {
+                    current += v;
+                    consumed += 2;
+                }
+                None if tokens.get(consumed + 1).map(String::as_str) == Some("mil") => {
+                    total += current.max(1) * 1000;
+                    current = 0;
+                    consumed += 2;
+                }
+                None => break,
+            },
+            _ => break,
+        }
+    }
+    Some((total + current, consumed))
 }
 
 /// Levenshtein distance over words, and the aligned operations for display.
@@ -161,7 +283,8 @@ pub fn run(model_path: &str) -> Result<()> {
             continue;
         }
 
-        let text = transcribe(&mut state, &audio, &settings)?;
+        // Long continuous reading: let whisper segment it (see transcribe_with).
+        let text = transcribe_with(&mut state, &audio, &settings, false)?;
         let reference = words(&block.lines.join(" "));
         let hypothesis = words(&text);
         let (errors, ops) = wer(&reference, &hypothesis);
@@ -187,8 +310,14 @@ pub fn run(model_path: &str) -> Result<()> {
             }
         }
 
-        total_errors += errors;
-        total_words += reference.len();
+        // The homophone block is a reference floor, not a target: no ASR can
+        // separate "sessão" from "seção" without context, so counting it in
+        // the overall figure would just add noise.
+        let informational = block.title.contains("referência");
+        if !informational {
+            total_errors += errors;
+            total_words += reference.len();
+        }
         summary.push((block.title.clone(), errors, reference.len()));
     }
 
@@ -199,7 +328,15 @@ pub fn run(model_path: &str) -> Result<()> {
         } else {
             *errors as f32 / *total as f32 * 100.0
         };
-        println!("  {:<38} WER {:5.1}%  ({errors}/{total})", title, rate);
+        let note = if title.contains("referência") {
+            "  [fora do total]"
+        } else {
+            ""
+        };
+        println!(
+            "  {:<44} WER {:5.1}%  ({errors}/{total}){note}",
+            title, rate
+        );
     }
     if total_words > 0 {
         println!(
@@ -213,44 +350,5 @@ pub fn run(model_path: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reference_passage_parses_into_blocks() {
-        let blocks = parse_blocks();
-        assert!(
-            blocks.len() >= 6,
-            "esperados 6+ blocos, veio {}",
-            blocks.len()
-        );
-        assert!(blocks.iter().all(|b| !b.lines.is_empty()));
-        // The command vocabulary must actually appear in the passage,
-        // otherwise the test measures something the app never has to hear.
-        let all = blocks
-            .iter()
-            .flat_map(|b| b.lines.iter())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" ");
-        let spoken = words(&all);
-        let config = crate::config::Config::embedded();
-        let vocab = config.vocab("pt").unwrap();
-        for word in vocab.send.iter().chain(vocab.cancel.iter()) {
-            let w = words(word);
-            assert!(
-                w.iter().all(|t| spoken.contains(t)),
-                "vocabulário {word:?} não aparece na passagem"
-            );
-        }
-    }
-
-    #[test]
-    fn wer_counts_substitutions_insertions_and_deletions() {
-        let r = words("o gato subiu no telhado");
-        assert_eq!(wer(&r, &words("o gato subiu no telhado")).0, 0);
-        assert_eq!(wer(&r, &words("o rato subiu no telhado")).0, 1);
-        assert_eq!(wer(&r, &words("o gato subiu telhado")).0, 1);
-        assert_eq!(wer(&r, &words("o gato subiu logo no telhado")).0, 1);
-    }
-}
+#[path = "asrtest_tests.rs"]
+mod tests;

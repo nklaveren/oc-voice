@@ -11,12 +11,25 @@ pub fn transcribe(
     audio: &[f32],
     settings: &Arc<Mutex<AppSettings>>,
 ) -> Result<String> {
+    transcribe_with(state, audio, settings, true)
+}
+
+/// `single_segment` forces whisper to emit one segment. The live pipeline
+/// wants that — VAD already bounded the audio to one utterance — but on a
+/// long continuous recording it truncates badly, so the benchmark passes
+/// false and lets whisper segment on its own.
+pub fn transcribe_with(
+    state: &mut whisper_rs::WhisperState,
+    audio: &[f32],
+    settings: &Arc<Mutex<AppSettings>>,
+    single_segment: bool,
+) -> Result<String> {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
     params.set_print_special(false);
     params.set_print_progress(false);
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
-    params.set_single_segment(true);
+    params.set_single_segment(single_segment);
     params.set_n_threads(num_cpus::get_physical() as i32);
     params.set_no_context(true);
     params.set_suppress_blank(true);

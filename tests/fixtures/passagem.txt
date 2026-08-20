@@ -60,8 +60,12 @@ A porta três mil e cem está ocupada pelo servidor de desenvolvimento.
 O erro quatrocentos e quatro apareceu em vinte e sete por cento das chamadas.
 Versão dois ponto quatorze ponto zero.
 
-# --- bloco 6: pares que confundem ---
-# Palavras curtas e parecidas, onde a similaridade tem menos folga.
+# --- bloco 6 (referência): homófonos, piso teórico ---
+# ATENÇÃO: sessão/seção/cessão e concerto/conserto são homófonos perfeitos
+# em pt-BR — soam idênticos. Lidos soltos, sem frase em volta, NENHUM ASR
+# pode acertar acima do acaso: não há informação acústica que os separe.
+# Este bloco existe como piso de referência, não como meta. Erro alto aqui
+# é esperado e não indica problema; ele não entra no total geral.
 concerto conserto
 sessão seção cessão
 mas mais
