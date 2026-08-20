@@ -22,9 +22,7 @@ mod wm;
 
 use asr::{transcribe, SpeechSegment};
 use audio::capture::{run_capture, run_capture_system};
-use commands::{classify, execute_command, VoiceCommand};
 use crossbeam_channel::Sender;
-use input::inject::type_text;
 use process::{CommandRunner, SystemRunner};
 use ringbuf::{traits::*, HeapRb};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -86,6 +84,8 @@ pub enum TranscribeMode {
     Input,
     Translate,
     Enter,
+    /// Everything is a WM command; nothing is ever typed (M4.2).
+    Command,
 }
 
 pub struct AppSettings {
@@ -312,34 +312,15 @@ fn run_audio_pipeline(
                     let mode = lock_settings(&settings).mode;
                     info!(?mode, source = if matches!(mode, TranscribeMode::Translate) { "system" } else { "mic" }, text = %trimmed, "FINAL");
                     emit(&tx, TranscriptEvent::Final(trimmed.to_string()));
-                    match mode {
-                        TranscribeMode::Input => {
-                            type_text(&*runner, trimmed);
-                        }
-                        TranscribeMode::Enter => {
-                            let vocab = config::active_vocab(&config, &settings);
-                            match vocab.and_then(|v| classify(trimmed, v, config.threshold())) {
-                                Some(VoiceCommand::Dictation) | None => {
-                                    enter_buffer.push(trimmed.to_string());
-                                    emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
-                                }
-                                Some(cmd) => {
-                                    // vocab is Some here: classify returned a command.
-                                    if let Some(v) = vocab {
-                                        execute_command(
-                                            v,
-                                            config.threshold(),
-                                            &cmd,
-                                            &mut enter_buffer,
-                                            &tx,
-                                            &runner,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        TranscribeMode::Translate => {}
-                    }
+                    commands::route_final(
+                        mode,
+                        trimmed,
+                        &config,
+                        &settings,
+                        &mut enter_buffer,
+                        &tx,
+                        &runner,
+                    );
                     debug!(infer_ms, samples = segment.samples.len(), "final emitted");
                 } else {
                     emit(&tx, TranscriptEvent::PartialCleared);
@@ -353,34 +334,15 @@ fn run_audio_pipeline(
                 if !trimmed.is_empty() {
                     let mode = lock_settings(&settings).mode;
                     emit(&tx, TranscriptEvent::Final(trimmed.to_string()));
-                    match mode {
-                        TranscribeMode::Input => {
-                            type_text(&*runner, trimmed);
-                        }
-                        TranscribeMode::Enter => {
-                            let vocab = config::active_vocab(&config, &settings);
-                            match vocab.and_then(|v| classify(trimmed, v, config.threshold())) {
-                                Some(VoiceCommand::Dictation) | None => {
-                                    enter_buffer.push(trimmed.to_string());
-                                    emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
-                                }
-                                Some(cmd) => {
-                                    // vocab is Some here: classify returned a command.
-                                    if let Some(v) = vocab {
-                                        execute_command(
-                                            v,
-                                            config.threshold(),
-                                            &cmd,
-                                            &mut enter_buffer,
-                                            &tx,
-                                            &runner,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        TranscribeMode::Translate => {}
-                    }
+                    commands::route_final(
+                        mode,
+                        trimmed,
+                        &config,
+                        &settings,
+                        &mut enter_buffer,
+                        &tx,
+                        &runner,
+                    );
                 }
                 segment.reset();
             }

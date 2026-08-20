@@ -261,13 +261,15 @@ impl eframe::App for OverlayApp {
                         TranscribeMode::Input => "\u{1f4dd} Input Mode",
                         TranscribeMode::Translate => "\u{1f310} Translate Mode",
                         TranscribeMode::Enter => "\u{23ce} Enter Mode",
+                        TranscribeMode::Command => "\u{1f5a5} Command Mode",
                     };
                     if ui.button(mode_label).clicked() {
                         let mut s = self.settings.lock().unwrap();
                         s.mode = match s.mode {
                             TranscribeMode::Input => TranscribeMode::Translate,
                             TranscribeMode::Translate => TranscribeMode::Enter,
-                            TranscribeMode::Enter => TranscribeMode::Input,
+                            TranscribeMode::Enter => TranscribeMode::Command,
+                            TranscribeMode::Command => TranscribeMode::Input,
                         };
                     }
                 });

@@ -117,6 +117,51 @@ pub(crate) fn fold_diacritics(s: &str) -> String {
         .collect()
 }
 
+/// Route one finalized utterance according to the transcribe mode. This is
+/// the single point where speech becomes action, and the unit M4.2's
+/// "type_text is never called in Command mode" is tested against.
+#[allow(clippy::too_many_arguments)]
+pub fn route_final(
+    mode: crate::TranscribeMode,
+    trimmed: &str,
+    config: &crate::config::Config,
+    settings: &std::sync::Mutex<crate::AppSettings>,
+    enter_buffer: &mut Vec<String>,
+    tx: &Sender<TranscriptEvent>,
+    runner: &Arc<dyn CommandRunner>,
+) {
+    use crate::TranscribeMode;
+    match mode {
+        TranscribeMode::Input => {
+            type_text(&**runner, trimmed);
+        }
+        TranscribeMode::Enter => {
+            let vocab = crate::config::active_vocab(config, settings);
+            match vocab.and_then(|v| classify(trimmed, v, config.threshold())) {
+                Some(VoiceCommand::Dictation) | None => {
+                    enter_buffer.push(trimmed.to_string());
+                    emit(tx, TranscriptEvent::Buffered(enter_buffer.len()));
+                }
+                Some(cmd) => {
+                    // vocab is Some here: classify returned a command.
+                    if let Some(v) = vocab {
+                        execute_command(v, config.threshold(), &cmd, enter_buffer, tx, runner);
+                    }
+                }
+            }
+        }
+        TranscribeMode::Command => {
+            // Everything is a WM command; dictation is dropped, never typed.
+            // Dispatch of navigation commands lands in M3.1.
+            let vocab = crate::config::active_vocab(config, settings);
+            if let Some(v) = vocab {
+                crate::wm::dispatch::dispatch_spoken(v, config, trimmed, runner, tx);
+            }
+        }
+        TranscribeMode::Translate => {}
+    }
+}
+
 pub fn execute_command(
     vocab: &crate::config::LangVocab,
     threshold: f64,
@@ -244,6 +289,42 @@ mod tests {
         // prefixed form works too.
         assert_eq!(classify("câmbio"), Some(VoiceCommand::Send));
         assert_eq!(classify("computador câmbio"), Some(VoiceCommand::Send));
+    }
+
+    #[test]
+    fn command_mode_never_types() {
+        // M4.2 acceptance: in Command mode, type_text is never reached — not
+        // for dictation, not even for the send word.
+        use crate::process::FakeRunner;
+        let fake = Arc::new(FakeRunner::new(b"[]".to_vec()));
+        let runner: Arc<dyn CommandRunner> = fake.clone();
+        let config = crate::config::Config::embedded();
+        let settings = std::sync::Mutex::new(crate::AppSettings {
+            language: "pt".to_string(),
+            mode: crate::TranscribeMode::Command,
+            detected_language: None,
+        });
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut buffer = Vec::new();
+        for spoken in ["texto ditado qualquer", "câmbio", "envia para navegador"] {
+            route_final(
+                crate::TranscribeMode::Command,
+                spoken,
+                &config,
+                &settings,
+                &mut buffer,
+                &tx,
+                &runner,
+            );
+        }
+        assert!(buffer.is_empty(), "Command mode must not buffer dictation");
+        assert!(
+            !fake
+                .calls()
+                .iter()
+                .any(|(p, _)| p == "wtype" || p == "xdotool" || p == "which"),
+            "Command mode must never reach text injection"
+        );
     }
 
     #[test]
