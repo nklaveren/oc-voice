@@ -429,13 +429,15 @@ Três itens deste backlog pediam confirmação por caminhos diferentes: alvo de 
 
 ## M5 — Pronto para publicar
 
-### M5.1 — Licença e metadados
+### M5.1 — Licença e metadados ✅
 
 Não há `LICENSE`, e [`Cargo.toml`](Cargo.toml) não tem `license`, `repository`, `authors` nem `readme`. Sem isso o projeto não é legalmente utilizável por ninguém.
 
 **Aceite:** `LICENSE` existe e o mesmo identificador SPDX está em `Cargo.toml`. `cargo metadata` mostra `license`, `repository`, `authors` e `readme` preenchidos. (Não usar `cargo publish` como critério — é um binário atrelado a CUDA, não vai para o crates.io.)
 
-### M5.2 — Reescrever README e AGENTS
+**Desvio consciente:** `repository` ficou de fora — o repo ainda não tem remote, e inventar a URL seria pior que omitir. Preencher no momento do push ao GitHub; há um comentário no `Cargo.toml` marcando o lugar.
+
+### M5.2 — Reescrever README e AGENTS ✅
 
 Os dois estão defasados em pontos que vão enganar qualquer pessoa nova. O [`README.md`](README.md) descreve overlay, VAD, Hyprland e resampling decente como **fora de escopo** — está tudo implementado — e cita `ggml-base.en.bin`, modelo que o [`justfile`](justfile) não usa desde que virou `large-v3-turbo`. O [`AGENTS.md`](AGENTS.md) repete as mesmas exclusões.
 
@@ -453,7 +455,7 @@ GitHub Actions com `nix develop --command just check` mais `cargo test`. Usar a 
 
 **Aceite:** o workflow passa no CI. Um PR com `cargo fmt` sujo é reprovado.
 
-### M5.4 — Caminho sem CUDA
+### M5.4 — Caminho sem CUDA ✅
 
 `default = ["cuda"]` em [`Cargo.toml`](Cargo.toml). Quem não tem NVIDIA precisa descobrir sozinho a flag certa, e o [`README.md`](README.md) não menciona.
 

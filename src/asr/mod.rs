@@ -160,3 +160,38 @@ impl SpeechSegment {
         self.last_partial = Instant::now();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Latency measurement for M5.4 — run explicitly, needs the model:
+    ///   OC_VOICE_MODEL=models/ggml-large-v3-turbo-q8_0.bin \
+    ///   cargo test --release [--no-default-features --features cpu] \
+    ///     -- --ignored --nocapture measure_transcribe_latency
+    ///
+    /// Times a 3 s window. Whisper's encoder cost is dominated by the padded
+    /// mel window, so silence is a fair stand-in for speech within ~10%.
+    #[test]
+    #[ignore]
+    fn measure_transcribe_latency() {
+        use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+        let model = std::env::var("OC_VOICE_MODEL").expect("set OC_VOICE_MODEL");
+        let load_start = std::time::Instant::now();
+        let ctx = WhisperContext::new_with_params(&model, WhisperContextParameters::default())
+            .expect("model loads");
+        let mut state = ctx.create_state().expect("state");
+        println!("model load: {} ms", load_start.elapsed().as_millis());
+        let audio = vec![0.0_f32; 3 * 16_000];
+        for run in 0..3 {
+            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            params.set_print_special(false);
+            params.set_print_progress(false);
+            params.set_print_realtime(false);
+            params.set_print_timestamps(false);
+            params.set_single_segment(true);
+            params.set_language(Some("pt"));
+            let t = std::time::Instant::now();
+            state.full(params, &audio).expect("full");
+            println!("run {run}: 3 s audio in {} ms", t.elapsed().as_millis());
+        }
+    }
+}

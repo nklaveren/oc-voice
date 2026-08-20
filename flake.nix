@@ -99,8 +99,8 @@
 
           shellHook = ''
             echo "oc-voice dev shell ready"
-            echo "  just fetch-model   # download ggml-base.en.bin"
-            echo "  just run           # run the POC"
+            echo "  just run     # fetches the model on first use, then runs"
+            echo "  just check   # full gate suite before committing"
           '';
         };
       });

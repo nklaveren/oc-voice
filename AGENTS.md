@@ -3,12 +3,14 @@
 ## Project snapshot
 
 - `oc-voice` is voice control for Hyprland: microphone -> text -> dictation, input
-  submission, and window/WM commands.
-- The audio pipeline works today. What is being built now is command recognition:
-  replacing exact string equality with similarity matching, and adding WM navigation.
-- **`BACKLOG.md` is the source of truth for what to build and in what order.** Read it
-  before starting work. Every design decision there is backed by a measurement against
-  real windows; do not override one without a measurement of your own.
+  submission, and window/WM commands. Four modes: Input, Enter, Command, Translate.
+- Command recognition is similarity matching (Jaro-Winkler + word-count gate) against
+  a per-language vocabulary in commands.toml; window targets resolve against live
+  hyprctl output in two stages (category, then token). There is no LLM anywhere.
+- **`BACKLOG.md` is the source of truth for what was built and why.** Items carry a
+  checkmark and commit hash when done. Every design decision there is backed by a
+  measurement against real windows; do not override one without a measurement of
+  your own.
 
 ## Stack
 
@@ -24,9 +26,15 @@
 ## Repo layout
 
 - `BACKLOG.md`: the roadmap. Start here.
-- `src/main.rs`: pipeline, overlay, injection, Hyprland integration. Being split into
-  modules — see M0.2 in the backlog.
-- `src/llm_classifier.rs`: `VoiceCommand` vocabulary and the keyword classifier.
+- `src/main.rs`: pipeline orchestration, events, settings.
+- `src/commands/`: classification (`mod.rs`), similarity matcher (`matcher.rs`),
+  execution + confirmation policy (`execute.rs`).
+- `src/config/`: per-language vocabulary; `default.toml` is the embedded default.
+- `src/wm/`: window-target resolution (`target.rs`), WM dispatch (`dispatch.rs`),
+  hyprland helpers.
+- `src/audio/`, `src/asr/`, `src/input/`, `src/ui/`: capture, whisper, injection,
+  overlay + stdout mirror.
+- `tests/fixtures/`: hyprctl JSON snapshots the resolver tests run against.
 - `Cargo.toml`, `justfile`, `flake.nix`: crate metadata, dev entrypoints, dev shell.
 - `models/`: downloaded models; ignored by git.
 
@@ -35,8 +43,9 @@
 1. Enter the environment with `nix develop`.
 2. `just fetch-model` downloads the Whisper model (~874 MB) on first use.
 3. `just run` for the default CUDA path, `just run-cpu` when no GPU is available.
-4. `just check` before wrapping up — it runs `cargo check`, `cargo clippy -D warnings`
-   and `cargo fmt --check`.
+4. `just check` before wrapping up — it runs the size ceiling (`limits`), the docs
+   reference checker (`refs`), the hardcoded-vocabulary ban (`vocab`), `cargo check`,
+   `cargo clippy -D warnings`, `cargo fmt --check` and `cargo test`.
 5. `just fmt` to apply formatting.
 
 ## Engineering guidelines

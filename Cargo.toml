@@ -2,7 +2,11 @@
 name = "oc-voice"
 version = "0.1.0"
 edition = "2021"
-description = "Voice -> text -> opencode TUI bridge"
+description = "Voice dictation and window control for Hyprland, fully local"
+license = "MIT"
+authors = ["Nicolas Van Klaveren"]
+readme = "README.md"
+# repository: add the GitHub URL when the repo is published
 
 [[bin]]
 name = "oc-voice"
