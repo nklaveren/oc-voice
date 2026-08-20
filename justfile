@@ -203,6 +203,12 @@ refs:
     fi
     echo "refs ok: every file:line in the docs still names its symbol"
 
+# Re-record the dispatch snapshot after an INTENTIONAL binding change.
+# Read the diff the failing test printed before running this — the snapshot
+# exists to make a silent change loud, and blindly re-recording turns it off.
+snapshot:
+    UPDATE_SNAPSHOT=1 cargo test the_whole_vocabulary
+
 # Apply rustfmt
 fmt:
     cargo fmt

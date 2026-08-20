@@ -1,0 +1,85 @@
+pt  fecha                    -> (confirma)
+pt  fechar janela            -> (confirma)
+pt  flutuante                -> dispatch togglefloating
+pt  janela anterior          -> dispatch cyclenext prev
+pt  proxima janela           -> dispatch cyclenext
+pt  próxima janela           -> dispatch cyclenext
+pt  tela cheia               -> dispatch fullscreen
+pt  troca tela               -> dispatch cyclenext
+pt  trocar tela              -> dispatch cyclenext
+pt  volta janela             -> dispatch cyclenext prev
+pt  monitor baixo            -> (nada)
+pt  monitor centro           -> dispatch focusmonitor CCC-1
+pt  monitor cima             -> (nada)
+pt  monitor direita          -> dispatch focusmonitor AAA-1
+pt  monitor direito          -> dispatch focusmonitor AAA-1
+pt  monitor esquerda         -> dispatch focusmonitor BBB-1
+pt  monitor esquerdo         -> dispatch focusmonitor BBB-1
+pt  monitor meio             -> dispatch focusmonitor CCC-1
+pt  monitor da baixo         -> (nada)
+pt  monitor da centro        -> dispatch focusmonitor CCC-1
+pt  monitor da cima          -> (nada)
+pt  monitor da direita       -> dispatch focusmonitor AAA-1
+pt  monitor da direito       -> dispatch focusmonitor AAA-1
+pt  monitor da esquerda      -> dispatch focusmonitor BBB-1
+pt  monitor da esquerdo      -> dispatch focusmonitor BBB-1
+pt  monitor da meio          -> dispatch focusmonitor CCC-1
+pt  monitor do baixo         -> (nada)
+pt  monitor do centro        -> dispatch focusmonitor CCC-1
+pt  monitor do cima          -> (nada)
+pt  monitor do direita       -> dispatch focusmonitor AAA-1
+pt  monitor do direito       -> dispatch focusmonitor AAA-1
+pt  monitor do esquerda      -> dispatch focusmonitor BBB-1
+pt  monitor do esquerdo      -> dispatch focusmonitor BBB-1
+pt  monitor do meio          -> dispatch focusmonitor CCC-1
+pt  monitor samsung          -> dispatch focusmonitor BBB-1
+pt  janela da baixo          -> dispatch movefocus d
+pt  janela da centro         -> (nada)
+pt  janela da cima           -> dispatch movefocus u
+pt  janela da direita        -> dispatch movefocus r
+pt  janela da direito        -> dispatch movefocus r
+pt  janela da esquerda       -> dispatch movefocus l
+pt  janela da esquerdo       -> dispatch movefocus l
+pt  janela da meio           -> (nada)
+pt  janela de baixo          -> dispatch movefocus d
+pt  janela de centro         -> (nada)
+pt  janela de cima           -> dispatch movefocus u
+pt  janela de direita        -> dispatch movefocus r
+pt  janela de direito        -> dispatch movefocus r
+pt  janela de esquerda       -> dispatch movefocus l
+pt  janela de esquerdo       -> dispatch movefocus l
+pt  janela de meio           -> (nada)
+pt  área de trabalho 3       -> dispatch workspace 3
+pt  leva pra 3               -> dispatch movetoworkspace 3
+pt  leva para 3              -> dispatch movetoworkspace 3
+pt  manda pra 3              -> dispatch movetoworkspace 3
+pt  manda para 3             -> dispatch movetoworkspace 3
+pt  foca o brave             -> dispatch focuswindow address:0xb1
+pt  foca no brave            -> dispatch focuswindow address:0xb1
+en  close window             -> (confirma)
+en  floating                 -> dispatch togglefloating
+en  full screen              -> dispatch fullscreen
+en  next window              -> dispatch cyclenext
+en  previous window          -> dispatch cyclenext prev
+en  center monitor           -> dispatch focusmonitor CCC-1
+en  down monitor             -> (nada)
+en  left monitor             -> dispatch focusmonitor BBB-1
+en  middle monitor           -> dispatch focusmonitor CCC-1
+en  right monitor            -> dispatch focusmonitor AAA-1
+en  up monitor               -> (nada)
+en  monitor center           -> dispatch focusmonitor CCC-1
+en  monitor down             -> (nada)
+en  monitor left             -> dispatch focusmonitor BBB-1
+en  monitor middle           -> dispatch focusmonitor CCC-1
+en  monitor right            -> dispatch focusmonitor AAA-1
+en  monitor up               -> (nada)
+en  monitor samsung          -> dispatch focusmonitor BBB-1
+en  center window            -> dispatch cyclenext
+en  down window              -> dispatch movefocus d
+en  left window              -> dispatch cyclenext
+en  middle window            -> (nada)
+en  right window             -> dispatch movefocus r
+en  up window                -> dispatch movefocus u
+en  workspace 3              -> dispatch workspace 3
+en  move to 3                -> dispatch movetoworkspace 3
+en  focus brave              -> dispatch focuswindow address:0xb1

@@ -204,3 +204,123 @@ mod live {
         }
     }
 }
+
+/// Every binding the app ships, and exactly what each one dispatches.
+///
+/// The hand-picked tests above check the cases someone thought of. This walks
+/// the whole vocabulary, so a binding added tomorrow is covered tomorrow —
+/// the same reason the help text is generated rather than written down.
+///
+/// It exists for the `WindowManager` refactor: the point is not "is this
+/// mapping right" but "is it the same as it was". A refactor that quietly
+/// changes what "monitor da direita" does would otherwise pass every test in
+/// this file.
+fn every_binding(lang: &str) -> Vec<String> {
+    let config = crate::config::Config::embedded();
+    let vocab = config.vocab(lang).expect("shipped language").clone();
+    let mut out = Vec::new();
+
+    let run = |spoken: &str, world: &[u8]| -> String {
+        let fake = Arc::new(FakeRunner::new(world.to_vec()));
+        let runner: Arc<dyn CommandRunner> = fake.clone();
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let mut pending = None;
+        dispatch_spoken(&vocab, &config, spoken, &runner, &tx, &mut pending);
+        let calls = dispatched(&fake);
+        if calls.is_empty() {
+            // A binding that dispatches nothing is either awaiting
+            // confirmation or broken; the snapshot records which.
+            return match pending {
+                Some(_) => "(confirma)".to_string(),
+                None => "(nada)".to_string(),
+            };
+        }
+        calls
+            .iter()
+            .map(|a| a.join(" "))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+
+    let mut words: Vec<&String> = vocab.wm_commands.keys().collect();
+    words.sort();
+    for w in words {
+        out.push(format!("{lang}  {w:<24} -> {}", run(w, SNAPSHOT_MONITORS)));
+    }
+
+    // Templates, with a representative value per slot. Directions are
+    // enumerated because each one maps somewhere different; the rest get one
+    // value, since the resolver's own tests cover their variation.
+    let mut directions: Vec<&String> = vocab.directions.keys().collect();
+    directions.sort();
+    for t in &vocab.templates {
+        // `hyprctl monitors -j` and `hyprctl clients -j` are different calls
+        // that FakeRunner answers identically, and their shapes do not merge:
+        // MonitorInfo requires `name`, which a window does not have, so one
+        // combined array deserializes as neither. Each template gets the
+        // world it asks about.
+        let (fills, world): (Vec<String>, &[u8]) = if t.pattern.contains("{direcao}") {
+            (
+                directions.iter().map(|d| d.to_string()).collect(),
+                SNAPSHOT_MONITORS,
+            )
+        } else if t.pattern.contains("{numero}") {
+            (vec!["3".to_string()], SNAPSHOT_MONITORS)
+        } else if t.pattern.contains("{monitor}") {
+            (vec!["samsung".to_string()], SNAPSHOT_MONITORS)
+        } else {
+            (vec!["brave".to_string()], SNAPSHOT_CLIENTS)
+        };
+        for fill in fills {
+            let spoken = t
+                .pattern
+                .replace("{direcao}", &fill)
+                .replace("{numero}", &fill)
+                .replace("{monitor}", &fill)
+                .replace("{alvo}", &fill);
+            out.push(format!("{lang}  {spoken:<24} -> {}", run(&spoken, world)));
+        }
+    }
+    out
+}
+
+/// Fixed worlds for the snapshot, so the recorded answers depend on the
+/// vocabulary and the code and never on whatever happens to be open.
+const SNAPSHOT_MONITORS: &[u8] = br#"[
+        {"name": "AAA-1", "description": "BOE 0x0A88", "x": 5000},
+        {"name": "BBB-1", "description": "Samsung Electric Company Odyssey G30B", "x": 0},
+        {"name": "CCC-1", "description": "LG Electronics LG ULTRAWIDE", "x": 2000}
+    ]"#;
+const SNAPSHOT_CLIENTS: &[u8] =
+    br#"[{"class":"brave-browser","title":"docs - Brave","address":"0xb1"}]"#;
+
+#[test]
+fn the_whole_vocabulary_dispatches_what_it_always_did() {
+    let mut lines = every_binding("pt");
+    lines.extend(every_binding("en"));
+    let actual = lines.join("\n") + "\n";
+
+    let path = std::path::Path::new("tests/fixtures/dispatch.snapshot");
+    if std::env::var_os("UPDATE_SNAPSHOT").is_some() {
+        std::fs::write(path, &actual).expect("writing snapshot");
+        return;
+    }
+    let expected = std::fs::read_to_string(path).unwrap_or_default();
+    if expected != actual {
+        let mut report = String::from("dispatch snapshot changed:\n");
+        for (i, (e, a)) in expected.lines().zip(actual.lines()).enumerate() {
+            if e != a {
+                report.push_str(&format!("  line {}:\n    era: {e}\n    é:   {a}\n", i + 1));
+            }
+        }
+        let (el, al) = (expected.lines().count(), actual.lines().count());
+        if el != al {
+            report.push_str(&format!("  {el} linhas antes, {al} agora\n"));
+        }
+        report.push_str(
+            "\nSe a mudança é intencional, revise-a e rode:\n  \
+             UPDATE_SNAPSHOT=1 cargo test the_whole_vocabulary\n",
+        );
+        panic!("{report}");
+    }
+}
