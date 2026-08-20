@@ -42,7 +42,7 @@ Apagar:
 
 **Feito em `f07e822`.** Duas decisões além da letra do item: `llm_classifier.rs` virou `commands.rs` (módulo batizado de LLM sem LLM dentro é a confusão que este item remove, e é onde M0.2 o coloca), e `classify_with_fallback` virou `classify` (sem LLM não há de onde cair para trás). `ureq` permanece no `Cargo.lock` como build-dependency de `ort-sys`, via o crate do VAD silero — transitivo, fora do nosso controle.
 
-### M0.2 — Quebrar `main.rs` em módulos ✅ `05c5f14`
+### M0.2 — Quebrar `main.rs` em módulos ✅ `ee9c6d8`
 
 1399 linhas com sete responsabilidades distintas. Um contribuidor externo não consegue achar nada, e é impossível testar as partes isoladamente.
 
