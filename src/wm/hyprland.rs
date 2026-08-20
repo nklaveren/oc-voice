@@ -4,32 +4,18 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
 
-pub fn focus_window_and_type(
-    runner: &Arc<dyn CommandRunner>,
-    categories: &std::collections::HashMap<String, Vec<String>>,
-    threshold: f64,
-    target: &str,
-    text: &str,
-) {
-    let windows = crate::wm::target::live_windows(runner);
-    let resolved = crate::wm::target::resolve(target, categories, &windows, threshold);
-
-    match resolved {
-        Some(t) if !t.address.is_empty() => {
-            let _ = runner.output(
-                "hyprctl",
-                &["dispatch", "focuswindow", &format!("address:{}", t.address)],
-            );
-            std::thread::sleep(Duration::from_millis(100));
-            info!(target = %target, class = %t.class, score = t.score, "sent text to target window");
-        }
-        _ => {
-            debug!(target = %target, "no window matched; typing into focused window");
-        }
+/// Focus a window by its hyprctl address, then type the text into it.
+pub fn focus_address_and_type(runner: &Arc<dyn CommandRunner>, address: &str, text: &str) {
+    if !address.is_empty() {
+        let _ = runner.output(
+            "hyprctl",
+            &["dispatch", "focuswindow", &format!("address:{address}")],
+        );
+        std::thread::sleep(Duration::from_millis(100));
     }
-
     type_text(&**runner, text);
     type_key(&**runner, "Return");
+    info!(address, "sent text to target window");
 }
 
 /// Best-effort: detect Hyprland and auto-float+pin the oc-voice window.
@@ -111,13 +97,16 @@ mod tests {
     use crate::process::FakeRunner;
 
     #[test]
-    fn focuses_matching_window_before_typing() {
+    fn focuses_resolved_window_before_typing() {
         let fake = Arc::new(FakeRunner::new(
             br#"[{"class":"code","title":"main.rs","address":"0x123"}]"#.to_vec(),
         ));
         let runner: Arc<dyn CommandRunner> = fake.clone();
+        let windows = crate::wm::target::live_windows(&runner);
         let categories = std::collections::HashMap::new();
-        focus_window_and_type(&runner, &categories, 0.82, "code", "hello");
+        let resolved = crate::wm::target::resolve("code", &categories, &windows, 0.82)
+            .expect("code window resolves");
+        focus_address_and_type(&runner, &resolved.address, "hello");
         let calls = fake.calls();
         assert!(calls
             .iter()

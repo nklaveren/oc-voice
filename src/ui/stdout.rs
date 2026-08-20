@@ -17,9 +17,13 @@ pub fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
         TranscriptEvent::Sent(s) => write_stdout(&format!("\r\x1b[2K[sent]     {s}\n")),
         TranscriptEvent::Newline => write_stdout("\r\x1b[2K[newline]  Shift+Return\n"),
         TranscriptEvent::Cancelled => write_stdout("\r\x1b[2K[cancelled] buffer cleared\n"),
-        TranscriptEvent::SentTo(_, target) => {
-            write_stdout(&format!("\r\x1b[2K[sent_to]  {target}\n"))
+        TranscriptEvent::SentTo(_, target, score) => {
+            write_stdout(&format!("\r\x1b[2K[sent_to]  {target} ({score:.2})\n"))
         }
+        TranscriptEvent::AwaitingConfirmation(what) => {
+            write_stdout(&format!("\r\x1b[2K[confirm?] {what}\n"))
+        }
+        TranscriptEvent::ConfirmationCancelled => write_stdout("\r\x1b[2K[confirm?] cancelled\n"),
     }
     let _ = tx.send(event);
 }

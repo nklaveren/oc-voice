@@ -125,7 +125,7 @@ O `EnvFilter` default em `main.rs` usa `oc_voice_poc=info` — precisa virar `oc
 
 ## M1 — Um matcher só, por similaridade
 
-Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:51`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:97`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
+Hoje existem três lugares que comparam texto falado contra listas fixas, cada um com regra própria, e todos por igualdade exata: os comandos `classify` (`src/commands/mod.rs:48`), a tabela de aliases `resolve_target_alias` (removida em M2.1) e o filtro de alucinação `filter_hallucination` (`src/asr/mod.rs:97`). Igualdade exata é frágil contra ASR — foi o que causou o bug do "câmbio".
 
 **Inventário: o que passa por similaridade, contra qual pool.** Cada linha é um pool **fechado e separado**; nenhum vê os candidatos do outro, e a etapa determina qual é consultado.
 
@@ -151,7 +151,7 @@ A capacidade de **recusar** é o requisito central, não a de acertar. Um autoco
 
 Pipeline, nesta ordem:
 
-1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:105`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
+1. **Normalizar** — minúsculas, `fold_diacritics` (já existe em `src/commands/mod.rs:102`), remoção de pontuação. Colapsar `qu`→`k` e `c`→`k` na mesma passada: é uma linha e cobre a confusão acústica mais comum do português.
 2. **Filtrar por contagem de palavras** — só entram na comparação candidatos com o mesmo número de palavras da fala. Este passo é o que separa comando de ditado, ver medição abaixo.
 3. **Pontuar** com Jaro-Winkler (`strsim`), limiar default 0.82.
 
@@ -196,7 +196,7 @@ Os templates moram no `commands.toml` junto do resto do vocabulário, porque a o
 
 ### M1.2 — Trocar as três comparações pelo matcher ✅ `57cacc2`
 
-Reescrever `classify` (`src/commands/mod.rs:51`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
+Reescrever `classify` (`src/commands/mod.rs:48`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
 
 Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **string inteira** normalizada. Existe uma guarda de ≤5 palavras sugerindo que frases curtas deveriam passar, mas na prática só a palavra sozinha funciona — "ok câmbio" cai como ditado.
 
@@ -322,7 +322,7 @@ Na antiga `focus_window_and_type` a condição `target_lower.contains(&class)` e
 
 **Aceite:** candidatos com `class` e `title` vazios são descartados antes de comparar. Teste com fixture contendo uma janela de classe vazia.
 
-### M2.3 — Feedback de alvo no overlay
+### M2.3 — Feedback de alvo no overlay ✅
 
 Focar a janela errada e digitar dentro dela é destrutivo e não tem desfazer. O overlay precisa mostrar o alvo resolvido e o score de confiança antes de injetar.
 
@@ -409,7 +409,7 @@ O prefixo não substitui o filtro de contagem de palavras de M1.1 — ele age an
 
 **Aceite:** o seletor de modo do overlay lista os quatro. Em `Command`, `type_text` nunca é chamado.
 
-### M4.3 — Política única de confirmação
+### M4.3 — Política única de confirmação ✅
 
 Três itens deste backlog pediam confirmação por caminhos diferentes: alvo de baixa confiança (M2.3), ação destrutiva (M3.3) e comando reconhecido errado. Três mecanismos separados viram três comportamentos inconsistentes. Um só, com duas entradas:
 

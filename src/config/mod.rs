@@ -18,6 +18,12 @@ const EMBEDDED: &str = include_str!("default.toml");
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Matching {
     pub threshold: Option<f64>,
+    /// Below this resolution score, act only after spoken confirmation
+    /// (M4.3). 0.0 disables confirmation entirely.
+    pub confirm_below: Option<f64>,
+    /// Action names that always demand confirmation, score regardless
+    /// (M3.3). Empty list disables.
+    pub destructive: Option<Vec<String>>,
 }
 
 /// One language's spoken vocabulary. Empty lists are legal: a user can
@@ -54,6 +60,8 @@ struct RawConfig {
 #[derive(Debug, Clone)]
 pub struct Config {
     threshold: f64,
+    confirm_below: f64,
+    destructive: Vec<String>,
     languages: HashMap<String, LangVocab>,
 }
 
@@ -79,6 +87,12 @@ impl Config {
                 if let Some(t) = user.matching.threshold {
                     base.threshold = t;
                 }
+                if let Some(c) = user.matching.confirm_below {
+                    base.confirm_below = c;
+                }
+                if let Some(d) = user.matching.destructive {
+                    base.destructive = d;
+                }
                 for (lang, vocab) in user.languages {
                     base.languages.insert(lang, vocab);
                 }
@@ -97,12 +111,26 @@ impl Config {
                 .matching
                 .threshold
                 .unwrap_or(crate::commands::matcher::DEFAULT_THRESHOLD),
+            confirm_below: raw.matching.confirm_below.unwrap_or(0.9),
+            destructive: raw
+                .matching
+                .destructive
+                .unwrap_or_else(|| vec!["kill_active".to_string()]),
             languages: raw.languages,
         }
     }
 
     pub fn threshold(&self) -> f64 {
         self.threshold
+    }
+
+    pub fn confirm_below(&self) -> f64 {
+        self.confirm_below
+    }
+
+    #[allow(dead_code)] // consulted by wm::dispatch from M3.3 on
+    pub fn is_destructive(&self, action: &str) -> bool {
+        self.destructive.iter().any(|d| d == action)
     }
 
     /// The vocabulary for a language code, or None when that language has no

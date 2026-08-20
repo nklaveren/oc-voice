@@ -76,7 +76,12 @@ pub enum TranscriptEvent {
     /// In Enter mode: buffer was cancelled/discard.
     Cancelled,
     /// In Enter mode: text was sent to a specific window target.
-    SentTo(String, String),
+    /// Text, resolved window class, resolution score (M2.3).
+    SentTo(String, String, f64),
+    /// A command is waiting for spoken confirmation (M4.3).
+    AwaitingConfirmation(String),
+    /// The pending command was discarded.
+    ConfirmationCancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -207,6 +212,7 @@ fn run_audio_pipeline(
     let mut frame_buf: Vec<f32> = Vec::with_capacity(VAD_FRAME_SAMPLES * 2);
     let mut segment = SpeechSegment::default();
     let mut enter_buffer: Vec<String> = Vec::new();
+    let mut pending: Option<commands::PendingAction> = None;
 
     // Dynamic capture management: start/stop capture threads based on mode
     let mut capture_running_flag = Arc::new(AtomicBool::new(true));
@@ -318,6 +324,7 @@ fn run_audio_pipeline(
                         &config,
                         &settings,
                         &mut enter_buffer,
+                        &mut pending,
                         &tx,
                         &runner,
                     );
@@ -340,6 +347,7 @@ fn run_audio_pipeline(
                         &config,
                         &settings,
                         &mut enter_buffer,
+                        &mut pending,
                         &tx,
                         &runner,
                     );

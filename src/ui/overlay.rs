@@ -128,6 +128,24 @@ impl OverlayApp {
                         self.finals.drain(..excess);
                     }
                 }
+                TranscriptEvent::AwaitingConfirmation(what) => {
+                    self.partial.clear();
+                    self.finals.push(format!("[confirm?] {what}"));
+                    let max_keep = 4;
+                    if self.finals.len() > max_keep {
+                        let excess = self.finals.len() - max_keep;
+                        self.finals.drain(..excess);
+                    }
+                }
+                TranscriptEvent::ConfirmationCancelled => {
+                    self.partial.clear();
+                    self.finals.push("[confirm?] cancelled".to_string());
+                    let max_keep = 4;
+                    if self.finals.len() > max_keep {
+                        let excess = self.finals.len() - max_keep;
+                        self.finals.drain(..excess);
+                    }
+                }
                 TranscriptEvent::Newline => {
                     self.partial.clear();
                     self.finals.push("[newline]".to_string());
@@ -147,10 +165,12 @@ impl OverlayApp {
                         self.finals.drain(..excess);
                     }
                 }
-                TranscriptEvent::SentTo(_, target) => {
+                TranscriptEvent::SentTo(_, target, score) => {
                     self.partial.clear();
                     self.buffered = 0;
-                    self.finals.push(format!("[sent_to] {target}"));
+                    // M2.3: the overlay shows where the text went and how sure
+                    // the resolver was.
+                    self.finals.push(format!("[sent_to] {target} ({score:.2})"));
                     let max_keep = 4;
                     if self.finals.len() > max_keep {
                         let excess = self.finals.len() - max_keep;
