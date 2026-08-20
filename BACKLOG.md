@@ -465,6 +465,36 @@ Documentar `just run-cpu` e medir a latência real de `large-v3-turbo` em CPU �
 
 ---
 
+## M6 — Overlay nativo
+
+### M6.1 — Migrar o overlay para wlr-layer-shell
+
+Hoje o overlay é uma **xdg_toplevel** — uma janela de aplicativo comum. Por isso ele entra no tiling, rouba foco, e precisa de uma thread de correção via `hyprctl` que roda depois do compositor já ter mapeado e encaixado a janela. Todo o trabalho de `try_hyprland_float` existe para desfazer, por fora, uma consequência de ter pedido o tipo errado de superfície.
+
+O protocolo certo é **`zwlr_layer_shell_v1`**. Uma superfície de layer não é toplevel: o compositor a coloca num nível (background/bottom/top/overlay), ancorada em bordas, e ela **nunca entra no tiling e nunca recebe foco** salvo se pedir. É o que waybar, wofi e mako usam — e o que a waybar desta máquina usa nos três monitores agora.
+
+**O bloqueio é o eframe.** O winit não fala layer-shell; não há uma única referência ao protocolo no código-fonte dele. E `egui_overlay`, que aparece como candidato óbvio, **não resolve**: no Wayland ele opera via Xwayland, o que é um passo atrás do toplevel nativo que já existe.
+
+O caminho real é trocar a camada de janela mantendo o desenho:
+
+| Sobrevive | Precisa ser reescrito |
+|---|---|
+| `OverlayApp::ui()` — o desenho em egui | `run_overlay` — criação de janela e event loop |
+| `drain_events`, `send_word`, estado | `impl eframe::App` → loop próprio |
+| ~200 das 373 linhas | ~170 linhas, mais uma camada nova |
+
+Dependências: `smithay-client-toolkit` (layer-shell + event loop), `egui-wgpu` ou `egui_glow` para renderizar, `raw-window-handle` para amarrar. O eframe sai.
+
+**O que se ganha:** o tiling e o roubo de foco deixam de ser possíveis por construção, não por correção. A thread `try_hyprland_float` inteira desaparece — com ela os três bugs que já apareceram nela (toggle não idempotente, `resizeactive` sem alvo, busca por substring). Ancoragem passa a ser declarativa em vez de aritmética de pixels com escala de monitor. E funciona em qualquer compositor wlroots sem configuração nenhuma.
+
+**O que se perde:** layer-shell não existe no GNOME nem no X11. Como o projeto já assume Hyprland, isso não estreita nada de fato.
+
+**Enquanto isso, a regra de janela resolve o sintoma a custo zero** (ver README): `windowrulev2 = float/pin/nofocus, class:^(oc-voice)$` aplica no momento do map, antes de qualquer frame encaixado. Fazer a regra agora não conflita com a migração depois.
+
+**Aceite:** o overlay aparece como superfície de layer — `hyprctl layers` lista o namespace `oc-voice` — e não aparece em `hyprctl clients`. Nenhuma regra de janela necessária. `try_hyprland_float` e o módulo que a contém deixam de existir. O overlay nunca recebe foco: ditar em modo Enter com o overlay visível continua entregando o texto na janela de trabalho.
+
+---
+
 ## Ordem de execução
 
 M0 primeiro — mexer em código morto depois de construir por cima dele custa o dobro. Os gates de M0.4 entram cedo mesmo nascendo vermelhos: o `just vocab` vermelho é o que garante que M1.3 e M2.1 não sejam dados por prontos pela metade. Depois M1, que é o alicerce de tudo que vem: M2, M3 e M4 dependem todos do matcher. M2 antes de M3 porque a resolução de alvo é reusada pelo `focuswindow`. M4 pode ir em paralelo com M3, com uma exceção: M4.3 é a política de confirmação que M2.3 e M3.3 consomem, então precisa existir antes de qualquer um dos dois ser fechado. M5 fecha.
