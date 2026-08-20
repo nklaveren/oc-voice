@@ -40,12 +40,20 @@ esquerda = "l"
 cima = "u"
 baixo = "d"
 meio = "m"
+centro = "m"
 
 [pt.wm_commands]
 "tela cheia" = "fullscreen"
 "flutuante" = "toggle_floating"
 "fecha" = "kill_active"
 "fechar janela" = "kill_active"
+
+# A forma com slot fechado vem antes de "monitor {monitor}": em empate de
+# escore o primeiro template vence, e "monitor esquerda" deve ser direção,
+# não um monitor chamado "esquerda".
+[[pt.templates]]
+pattern = "monitor {direcao}"
+action = "focus_monitor"
 
 [[pt.templates]]
 pattern = "monitor da {direcao}"
@@ -116,6 +124,7 @@ left = "l"
 up = "u"
 down = "d"
 middle = "m"
+center = "m"
 
 [en.wm_commands]
 "full screen" = "fullscreen"
@@ -124,6 +133,10 @@ middle = "m"
 
 [[en.templates]]
 pattern = "{direcao} monitor"
+action = "focus_monitor"
+
+[[en.templates]]
+pattern = "monitor {direcao}"
 action = "focus_monitor"
 
 [[en.templates]]

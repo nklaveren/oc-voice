@@ -40,7 +40,7 @@ open.
 | "cancela" / "limpa" / "descarta" | discard the buffer |
 | "nova linha" / "pula linha" | line break |
 | "envia para \<alvo\>" | send buffer to a window ("navegador", "terminal", "teams"…) |
-| "monitor da direita / esquerda / do meio" | focus monitor by physical position |
+| "monitor \[da\] direita / esquerda / \[do\] meio / centro" | focus monitor by physical position |
 | "monitor \<marca\>" | focus monitor by brand ("monitor samsung") |
 | "janela da esquerda / de cima …" | move window focus |
 | "área de trabalho \<n\>" | switch workspace ("quatro" or "4") |

@@ -99,6 +99,41 @@ fn monitor_position_follows_the_x_layout() {
 }
 
 #[test]
+fn monitor_position_works_with_and_without_preposition() {
+    // "monitor esquerda" and "monitor da esquerda" are the same command;
+    // "centro" and "meio" are synonyms for the middle monitor.
+    for spoken in ["monitor esquerda", "monitor da esquerda"] {
+        assert_eq!(
+            say(spoken, MONITORS).0,
+            [["dispatch", "focusmonitor", "BBB-1"]],
+            "{spoken}"
+        );
+    }
+    for spoken in ["monitor meio", "monitor centro", "monitor do centro"] {
+        assert_eq!(
+            say(spoken, MONITORS).0,
+            [["dispatch", "focusmonitor", "CCC-1"]],
+            "{spoken}"
+        );
+    }
+    // A bare direction word alone must not switch monitors.
+    assert!(say("centro", MONITORS).0.is_empty());
+    // And the closed slot outranks the {monitor} wildcard on ties:
+    // "esquerda" is a direction, not a monitor named "esquerda".
+    assert_eq!(
+        say("monitor direita", MONITORS).0,
+        [["dispatch", "focusmonitor", "AAA-1"]]
+    );
+}
+
+#[test]
+fn center_is_not_a_window_focus_direction() {
+    // hyprctl movefocus only takes l/r/u/d; "janela do centro" must
+    // dispatch nothing rather than an invalid direction.
+    assert!(say("janela do centro", MONITORS).0.is_empty());
+}
+
+#[test]
 fn monitor_by_brand_matches_the_description() {
     assert_eq!(
         say("monitor samsung", MONITORS).0,

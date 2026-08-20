@@ -222,6 +222,11 @@ fn dispatch_args(
         "kill_active" => vec!["dispatch".into(), "killactive".into()],
         "move_focus" => {
             let dir = resolve_direction(slot?, vocab, threshold)?;
+            // hyprctl movefocus only takes l/r/u/d — "janela do centro" is
+            // not a thing and must not dispatch an invalid direction.
+            if !["l", "r", "u", "d"].contains(&dir.as_str()) {
+                return None;
+            }
             vec!["dispatch".into(), "movefocus".into(), dir]
         }
         "workspace" => {
