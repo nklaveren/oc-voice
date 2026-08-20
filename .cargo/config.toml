@@ -11,3 +11,12 @@ jobs = 8
 # cargo's -j, so they need capping separately or they undo the limit above.
 CMAKE_BUILD_PARALLEL_LEVEL = "6"
 MAKEFLAGS = "-j6"
+
+# CTranslate2 links protobuf statically and, by default, re-exports its
+# symbols from our binary. onnxruntime is then dlopen'd by the silero VAD
+# (ort load-dynamic) and its internal protobuf calls bind to OUR copy instead
+# of its own — different versions, so model loading fails with
+# "InvalidProtobuf". Hiding symbols that come from static archives keeps each
+# library on its own protobuf.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,--exclude-libs,ALL"]
