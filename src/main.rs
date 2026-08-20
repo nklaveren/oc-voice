@@ -93,6 +93,18 @@ pub enum TranscribeMode {
     Command,
 }
 
+impl TranscribeMode {
+    /// The overlay button cycles modes in this order.
+    pub fn next(self) -> Self {
+        match self {
+            TranscribeMode::Input => TranscribeMode::Translate,
+            TranscribeMode::Translate => TranscribeMode::Enter,
+            TranscribeMode::Enter => TranscribeMode::Command,
+            TranscribeMode::Command => TranscribeMode::Input,
+        }
+    }
+}
+
 pub struct AppSettings {
     pub language: String,
     pub mode: TranscribeMode,

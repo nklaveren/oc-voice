@@ -74,8 +74,15 @@ fn monitor_by_name(
         .find(|m| {
             matcher::normalize(&m.description)
                 .split_whitespace()
-                .filter(|t| t.len() >= 3)
-                .any(|t| strsim::jaro_winkler(&spoken_norm, t) >= 0.9)
+                // Short tokens are noise for fuzzy scoring but legitimate as
+                // brands (LG, HP): they match only exactly.
+                .any(|t| {
+                    if t.len() < 3 {
+                        t == spoken_norm
+                    } else {
+                        strsim::jaro_winkler(&spoken_norm, t) >= 0.9
+                    }
+                })
         })
         .map(|m| m.name.clone())
 }
@@ -249,130 +256,5 @@ fn dispatch_args(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::process::FakeRunner;
-
-    fn setup(fixture: &[u8]) -> (Arc<FakeRunner>, Arc<dyn CommandRunner>, Config) {
-        let fake = Arc::new(FakeRunner::new(fixture.to_vec()));
-        let runner: Arc<dyn CommandRunner> = fake.clone();
-        (fake, runner, crate::config::Config::embedded())
-    }
-
-    fn dispatched(fake: &FakeRunner) -> Vec<Vec<String>> {
-        fake.calls()
-            .iter()
-            .filter(|(p, a)| p == "hyprctl" && a.first().map(String::as_str) == Some("dispatch"))
-            .map(|(_, a)| a.clone())
-            .collect()
-    }
-
-    fn say(spoken: &str, fixture: &[u8]) -> (Vec<Vec<String>>, Option<PendingAction>) {
-        let (fake, runner, config) = setup(fixture);
-        let vocab = config.vocab("pt").unwrap().clone();
-        let (tx, _rx) = crossbeam_channel::unbounded();
-        let mut pending = None;
-        dispatch_spoken(&vocab, &config, spoken, &runner, &tx, &mut pending);
-        (dispatched(&fake), pending)
-    }
-
-    const MONITORS: &[u8] = br#"[
-        {"name": "AAA-1", "description": "BOE 0x0A88", "x": 5000},
-        {"name": "BBB-1", "description": "Samsung Electric Company Odyssey G30B", "x": 0},
-        {"name": "CCC-1", "description": "LG Electronics LG ULTRAWIDE", "x": 2000}
-    ]"#;
-    const CLIENTS: &[u8] =
-        br#"[{"class":"brave-browser","title":"docs - Brave","address":"0xb1"}]"#;
-
-    #[test]
-    fn whole_utterance_commands_dispatch() {
-        assert_eq!(say("tela cheia", b"[]").0, [["dispatch", "fullscreen"]]);
-        assert_eq!(say("flutuante", b"[]").0, [["dispatch", "togglefloating"]]);
-    }
-
-    #[test]
-    fn direction_templates_dispatch_movefocus() {
-        assert_eq!(
-            say("janela da esquerda", b"[]").0,
-            [["dispatch", "movefocus", "l"]]
-        );
-        assert_eq!(
-            say("janela de cima", b"[]").0,
-            [["dispatch", "movefocus", "u"]]
-        );
-    }
-
-    #[test]
-    fn spoken_and_digit_numbers_dispatch_identically() {
-        // M3.2 acceptance.
-        assert_eq!(
-            say("área de trabalho quatro", b"[]").0,
-            [["dispatch", "workspace", "4"]]
-        );
-        assert_eq!(
-            say("área de trabalho 4", b"[]").0,
-            [["dispatch", "workspace", "4"]]
-        );
-        assert_eq!(
-            say("leva pra três", b"[]").0,
-            [["dispatch", "movetoworkspace", "3"]]
-        );
-        for (word, n) in [("um", 1), ("dois", 2), ("cinco", 5), ("dez", 10)] {
-            assert_eq!(
-                say(&format!("área de trabalho {word}"), b"[]").0,
-                [vec![
-                    "dispatch".to_string(),
-                    "workspace".to_string(),
-                    n.to_string()
-                ]]
-            );
-        }
-    }
-
-    #[test]
-    fn monitor_position_follows_the_x_layout() {
-        // M3.1 acceptance: positions swapped relative to any real machine —
-        // "direita" must be the highest x, not any hardcoded name.
-        assert_eq!(
-            say("monitor da direita", MONITORS).0,
-            [["dispatch", "focusmonitor", "AAA-1"]]
-        );
-        assert_eq!(
-            say("monitor da esquerda", MONITORS).0,
-            [["dispatch", "focusmonitor", "BBB-1"]]
-        );
-        assert_eq!(
-            say("monitor do meio", MONITORS).0,
-            [["dispatch", "focusmonitor", "CCC-1"]]
-        );
-    }
-
-    #[test]
-    fn monitor_by_brand_matches_the_description() {
-        assert_eq!(
-            say("monitor samsung", MONITORS).0,
-            [["dispatch", "focusmonitor", "BBB-1"]]
-        );
-    }
-
-    #[test]
-    fn focus_window_goes_through_the_target_resolver() {
-        assert_eq!(
-            say("foca o brave", CLIENTS).0,
-            [["dispatch", "focuswindow", "address:0xb1"]]
-        );
-    }
-
-    #[test]
-    fn kill_active_waits_for_confirmation() {
-        // M3.3: "fecha" alone closes nothing.
-        let (calls, pending) = say("fecha", b"[]");
-        assert!(calls.is_empty(), "destructive action must not dispatch");
-        assert!(matches!(pending, Some(PendingAction::Dispatch { .. })));
-    }
-
-    #[test]
-    fn unrecognized_speech_dispatches_nothing() {
-        assert!(say("bom dia pessoal", b"[]").0.is_empty());
-    }
-}
+#[path = "dispatch_tests.rs"]
+mod tests;

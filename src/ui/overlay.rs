@@ -285,12 +285,7 @@ impl eframe::App for OverlayApp {
                     };
                     if ui.button(mode_label).clicked() {
                         let mut s = self.settings.lock().unwrap();
-                        s.mode = match s.mode {
-                            TranscribeMode::Input => TranscribeMode::Translate,
-                            TranscribeMode::Translate => TranscribeMode::Enter,
-                            TranscribeMode::Enter => TranscribeMode::Command,
-                            TranscribeMode::Command => TranscribeMode::Input,
-                        };
+                        s.mode = s.mode.next();
                     }
                 });
             });
@@ -338,6 +333,22 @@ mod tests {
         }));
         let config = Arc::new(crate::config::Config::embedded());
         (OverlayApp::new(rx, running, settings, config), tx)
+    }
+
+    #[test]
+    fn mode_button_cycles_through_all_four_modes() {
+        // M4.2: the selector must reach every mode and come back.
+        let start = TranscribeMode::Input;
+        let mut seen = vec![start];
+        let mut m = start;
+        for _ in 0..3 {
+            m = m.next();
+            assert!(!seen.contains(&m), "cycle revisited {m:?} early");
+            seen.push(m);
+        }
+        assert_eq!(m.next(), start, "cycle must close after all four");
+        assert!(seen.contains(&TranscribeMode::Command));
+        assert!(seen.contains(&TranscribeMode::Translate));
     }
 
     #[test]
