@@ -26,6 +26,7 @@ mod process;
 mod session;
 mod translate;
 mod ui;
+mod voices;
 mod wm;
 
 use process::{CommandRunner, SystemRunner};

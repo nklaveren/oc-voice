@@ -23,6 +23,11 @@ ringbuf = "0.4"
 rubato = "0.16"
 # voice activity detection (silero v5 via ort). load-dynamic avoids build-time downloads.
 voice_activity_detector = { version = "0.2", features = ["load-dynamic"] }
+# M7.4: speaker embeddings through the same runtime the VAD already loads.
+# Version-pinned to whatever voice_activity_detector resolved, so cargo unifies
+# them into one onnxruntime rather than linking two.
+ort = { version = "=2.0.0-rc.10", features = ["load-dynamic"] }
+ndarray = "0.16"
 # logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

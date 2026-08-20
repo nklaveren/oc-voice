@@ -552,7 +552,22 @@ Whisper **não** faz diarização — ele transcreve, não identifica. Mas a arq
 
 **O caminho, que reaproveita o que já existe.** O `ort` já está no grafo de dependências (via `voice_activity_detector`) e o `onnxruntime` já está no dev shell, com o conflito de protobuf resolvido em `af4da28`. Um modelo de embedding de locutor em ONNX (ECAPA-TDNN ou x-vector, tipicamente 15–25 MB) roda pela mesma infraestrutura, sem dependência nova e sem outro runtime.
 
-Por segmento: áudio → vetor de ~192 dimensões → similaridade de cosseno contra os centroides já vistos. Acima do limiar, mesma pessoa; abaixo, pessoa nova. **É estruturalmente o mesmo problema do resolvedor de janelas de M2.1** — normalizar, comparar por similaridade, decidir por limiar, recusar quando não há match — e merece a mesma disciplina: o limiar sai de medição contra gravação real, nunca de chute.
+Por segmento: áudio → fbank → vetor de embedding → similaridade de cosseno contra os centroides já vistos. Acima do limiar, mesma pessoa; abaixo, pessoa nova. **É estruturalmente o mesmo problema do resolvedor de janelas de M2.1** — normalizar, comparar por similaridade, decidir por limiar, recusar quando não há match — e merece a mesma disciplina: o limiar sai de medição contra gravação real, nunca de chute.
+
+**Medido, não estimado (`oc-voice voices`).** O CAM++ carrega no mesmo `ort` do VAD sem colisão de protobuf. O grafo declara entrada `feats [? × ? × 80]` e saída `embs [? × 512]` — **512 dimensões, não 192 como este item dizia antes de alguém olhar.** Inferência sobre 200 quadros (2 s de áudio): **19 ms**. Barato o bastante para rodar por segmento sem sair do orçamento do pipeline.
+
+**Determinismo: 1.000000.** Mesma entrada, duas inferências, cosseno 1. Sem isso não existe banco de vozes — um centroide guardado só é comparável a um embedding futuro se o modelo for estável, e um grafo com dropout esquecido dentro faria toda voz guardada apodrecer em disco.
+
+**Aviso que já mudou uma expectativa:** duas entradas sintéticas *completamente diferentes* deram cosseno **0.866**. Features sintéticas não são fala, então isso não é um piso rigoroso — mas é sinal forte de que a intuição "0.7 é a mesma pessoa" está errada para este modelo. O limiar útil vive bem acima disso, e vai sair de medição contra vozes reais gravadas, não de valor lido em tutorial.
+
+**A armadilha real do banco: envenenamento.** Se o OCR batizar um cluster errado uma vez e isso for gravado, o erro vira **permanente e viaja para as reuniões seguintes** — muito pior que uma legenda errada, que morre na próxima frase. Regras que precisam existir antes de qualquer persistência:
+
+- Nome nunca é gravado a partir de uma leitura só; exige N amostras concordantes, como o `LanguageLock`.
+- O arquivo guarda **quantas evidências** sustentam cada nome, e nome de pouca evidência pode ser sobrescrito.
+- O banco é **texto puro, editável à mão**. Uma pessoa corrigindo o arquivo bate qualquer heurística de confiança, e é a única defesa que funciona quando o resto falha.
+- Voz não reconhecida sai como `Falante ?`. O registro admite não saber; nunca inventa.
+
+**O trabalho real que sobra é o fbank.** O modelo não come áudio: quer mel de 80 bandas no formato Kaldi. Calcular diferente de como ele foi treinado produz embedding *confiantemente errado*, não obviamente quebrado — o pior modo de falha possível, porque o cosseno continua devolvendo números plausíveis. Vai em Rust puro, não por purismo: `knf-rs` traria leptonica/C++ e a última biblioteca C++ adicionada a este binário colidiu com os símbolos do onnxruntime.
 
 **Cadastro opcional.** Sem cadastro os rótulos são `Falante A`, `Falante B`. Gravando a própria voz uma vez, o dono da máquina vira `Nicolas` e o resto continua anônimo — barato de implementar e melhora muito a legibilidade da ata.
 

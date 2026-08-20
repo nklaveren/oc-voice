@@ -7,13 +7,14 @@
 //!   levels         live meter of the signal whisper receives
 //!   asr-test <m>   read the reference passage aloud, get word error rate
 //!   ocr <alvo>     what OCR reads off a window, with positions
+//!   voices         load the speaker model and report what it declares
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 
-const SUBCOMMANDS: &[&str] = &["probe", "devices", "levels", "asr-test", "ocr"];
+const SUBCOMMANDS: &[&str] = &["probe", "devices", "levels", "asr-test", "ocr", "voices"];
 
 /// Whether this argument names a diagnostic subcommand rather than a model.
 pub fn is_subcommand(arg: &str) -> bool {
@@ -43,6 +44,10 @@ pub fn run_subcommand(arg: &str) -> Result<bool> {
                 .nth(2)
                 .ok_or_else(|| anyhow!("usage: oc-voice asr-test <model.bin>"))?;
             crate::asrtest::run(&model)?;
+            Ok(true)
+        }
+        "voices" => {
+            crate::voices::report()?;
             Ok(true)
         }
         "ocr" => {
