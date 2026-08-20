@@ -64,7 +64,7 @@ Linhas conferidas em `f07e822`. Se divergirem, confie nos nomes, não nos númer
 
 Junto vai um requisito que M3.1 depende: todo processo externo (`hyprctl`, `wtype`, `pw-record`) passa por um trait `CommandRunner` com implementação real e implementação de teste. Sem essa indireção nada que dispara comando é testável, e o critério de aceite de M3.1 é impossível de cumprir.
 
-**Aceite:** nenhum arquivo em `src/` passa de 400 linhas. `just check` verde. Zero mudança de comportamento — o binário roda igual.
+**Aceite:** `just limits` passa — é o gate que verifica o teto de 400 linhas por arquivo, e ele já está vermelho hoje por causa do `main.rs`. `just check` verde (roda `limits`, `check`, `clippy`, `fmt` e `test`). Zero mudança de comportamento — o binário roda igual.
 
 ### M0.3 — Renomear o binário
 
