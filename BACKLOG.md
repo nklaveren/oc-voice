@@ -499,7 +499,27 @@ Consequência prática: a qualidade da tradução deixa de ser crítica, e a lat
 
 Não medido ainda, e é a primeira coisa a fazer antes de escrever código: **tamanho do modelo en→pt e latência por segmento na CPU**. O orçamento é o mesmo do resto do projeto — se não couber abaixo de ~300 ms por segmento, legenda ao vivo não fecha e a tradução vira etapa de fim de sessão, aplicada uma vez sobre o texto inteiro (onde latência não importa e o contexto completo melhora a qualidade).
 
-**Aceite:** com a reunião em inglês, o overlay mostra pt-BR e o arquivo da sessão contém o inglês original, ambos verificáveis no mesmo teste. Latência de tradução medida e registrada aqui, como M5.4 fez para o ASR. Se o número inviabilizar legenda ao vivo, o item é fechado com tradução em lote no fim da sessão e o motivo escrito.
+**Medido.** `opus-mt-tc-big-en-pt` convertido para CT2 `int8`: **226 MB** (de 443 MB em safetensors). Latência via `ct2rs`, nas falas reais da reunião capturada, máquina em `balanced`/120 W sob load 20 — que é a condição real de uso, com o trabalho do usuário rodando junto:
+
+| segmento | palavras | tempo |
+|---|---|---|
+| "Yeah, sure, yeah." | 3 | 240 ms |
+| "Okay, yeah, please do…" | 8 | 377 ms |
+| "Thank you. So what are these tasks?…" | 12 | 439 ms |
+| fala longa (teto de 20 s do VAD) | 37 | 1200 ms |
+| **lote de 50, de uma vez** | — | **106 ms cada** |
+
+Mediana **439 ms**; carga do modelo 713 ms.
+
+**Decisão: legenda ao vivo fecha, com ~0,7 s de atraso.** O que importa é a soma — whisper 238 ms + tradução 439 ms depois que a pessoa para de falar. Para *acompanhar* uma reunião lendo, isso é utilizável; legenda de TV atrasa mais. Fala típica de reunião fica entre 3 e 12 palavras, ou seja 240–440 ms; os segmentos de 1200 ms vêm do teto de 20 s do VAD, não do fechamento normal por silêncio.
+
+O lote a 106 ms por segmento confirma que traduzir a sessão inteira no fim é trivial — mas isso é opcional, já que o arquivo guarda o original por decisão de projeto.
+
+**Ressalva de qualidade, e é o que justifica a tradução ficar fora do registro:** apareceu um `⁇` (token desconhecido) e uma fala perdeu conteúdo na tradução. Como auxílio de leitura na tela, aceitável. Como ata, não seria.
+
+**Nota metodológica.** A primeira medição desta mesma tarefa, feita em Python, deu mediana de 16.605 ms e saída degenerada (`sim sim sim sim`) — tokenização quebrada por alimentar `source.spm`/`target.spm` separados num modelo de vocabulário compartilhado. O `ct2rs` traz `all-tokenizers` e resolve isso sozinho. **38× de diferença entre o medidor quebrado e o correto**; o número absurdo era do medidor, como no bloco de números do M5.4 e nas condições de máquina de `94154d3`.
+
+**Aceite:** com a reunião em inglês, o overlay mostra pt-BR e o arquivo da sessão contém o inglês original, ambos verificáveis no mesmo teste. Conversão do modelo é passo único e offline (`ct2-transformers-converter`, único Python envolvido); o runtime é Rust puro via `ct2rs`.
 
 ### M7.3 — Separar fonte de tarefa
 
