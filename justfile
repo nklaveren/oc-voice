@@ -70,6 +70,12 @@ ocr alvo="teams":
 ocr-watch region:
     cargo run --release -- ocr watch "{{ region }}"
 
+# Watch a whole window and rank its lines by how much they move. In a running
+# meeting the active speaker's name is the thing that changes; everything else
+# sits still. Finds the region so nobody has to eyeball a 72-line dump.
+ocr-changes alvo="teams" segundos="60":
+    cargo run --release -- ocr changes {{ alvo }} {{ segundos }}
+
 # Fetch the model if needed, then run (CUDA)
 run: fetch-model
     cargo run --release -- {{ models_dir }}/{{ model_name }}
