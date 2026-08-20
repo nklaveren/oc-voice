@@ -129,9 +129,9 @@ fn main() -> Result<()> {
         )
         .init();
 
-    let model_path = std::env::args().nth(1).ok_or_else(|| {
-        anyhow!("usage: oc-voice <model.bin> | oc-voice probe [lang] | oc-voice devices")
-    })?;
+    let model_path = std::env::args()
+        .nth(1)
+        .ok_or_else(|| anyhow!("usage: oc-voice <model.bin> | probe [lang] | devices | levels"))?;
 
     // Diagnostic REPL: no whisper, no audio, nothing dispatched.
     if model_path == "probe" {
@@ -143,6 +143,14 @@ fn main() -> Result<()> {
     if model_path == "devices" {
         audio::capture::list_devices();
         return Ok(());
+    }
+
+    // Live level meter on the exact signal whisper receives.
+    if model_path == "levels" {
+        let running = Arc::new(AtomicBool::new(true));
+        let r = running.clone();
+        ctrlc::set_handler(move || r.store(false, Ordering::SeqCst)).ok();
+        return audio::capture::run_level_meter(running);
     }
 
     let running = Arc::new(AtomicBool::new(true));

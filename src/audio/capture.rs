@@ -43,6 +43,65 @@ pub fn list_devices() {
     println!("para trocar, mude a fonte padrão no PipeWire: wpctl set-default <id>");
 }
 
+/// Live level meter on the exact path whisper receives: after downmix and
+/// after resampling to 16 kHz. `oc-voice levels` — speak and watch.
+///
+/// Speech should sit around -25 to -15 dBFS RMS. A room at rest reads near
+/// -60. If speech never lifts the RMS well above the resting value, whisper
+/// is being fed a signal too quiet to transcribe, and no model change fixes
+/// that — raise the source volume (`wpctl set-volume <id> 1.5`) or pick a
+/// different microphone (`oc-voice devices`).
+pub fn run_level_meter(running: Arc<AtomicBool>) -> Result<()> {
+    let rb = ringbuf::HeapRb::<f32>::new(16_000 * 4);
+    let (producer, mut consumer) = rb.split();
+    let capture_running = running.clone();
+    let handle = std::thread::spawn(move || {
+        if let Err(e) = run_capture(producer, capture_running) {
+            error!(error = ?e, "capture failed");
+        }
+    });
+
+    println!("medindo o sinal que o whisper recebe (16 kHz mono). Ctrl+C sai.\n");
+    let mut window: Vec<f32> = Vec::with_capacity(16_000);
+    let mut peak_hold: f32 = 0.0;
+    while running.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(200));
+        while let Some(v) = consumer.try_pop() {
+            window.push(v);
+        }
+        if window.len() < 3_200 {
+            continue;
+        }
+        let rms = (window.iter().map(|v| v * v).sum::<f32>() / window.len() as f32).sqrt();
+        let peak = window.iter().fold(0.0_f32, |a, v| a.max(v.abs()));
+        peak_hold = peak_hold.max(peak);
+        let db = |x: f32| if x > 1e-9 { 20.0 * x.log10() } else { -99.0 };
+        let rms_db = db(rms);
+        // 40-cell bar spanning -60..0 dBFS.
+        let filled = (((rms_db + 60.0) / 60.0).clamp(0.0, 1.0) * 40.0) as usize;
+        let verdict = if rms_db > -30.0 {
+            "voz"
+        } else if rms_db > -50.0 {
+            "baixo"
+        } else {
+            "silêncio"
+        };
+        print!(
+            "\r\x1b[2K[{:<40}] RMS {:6.1} dBFS  pico {:6.1}  máx {:6.1}  {}   ",
+            "#".repeat(filled),
+            rms_db,
+            db(peak),
+            db(peak_hold),
+            verdict
+        );
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        window.clear();
+    }
+    let _ = handle.join();
+    Ok(())
+}
+
 /// blocking call that keeps mic capture alive until `running` flips.
 pub fn run_capture<P>(producer: P, running: Arc<AtomicBool>) -> Result<()>
 where

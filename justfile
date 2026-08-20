@@ -25,6 +25,10 @@ fetch-model:
 build:
     cargo build --release
 
+# Live meter of the signal whisper receives — speak and watch the level
+levels:
+    cargo run --release -- levels
+
 # List audio inputs and show which mic capture would use
 devices:
     cargo run --release -- devices
