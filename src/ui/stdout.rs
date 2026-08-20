@@ -27,7 +27,9 @@ pub fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
         TranscriptEvent::Translated { text, .. } => {
             write_stdout(&format!("\r\x1b[2K[pt]      {text}\n"))
         }
-        TranscriptEvent::SessionStarted => write_stdout("\r\x1b[2K[sessão]  gravando\n"),
+        TranscriptEvent::SessionStarted(path) => {
+            write_stdout(&format!("\r\x1b[2K[sessão]  gravando -> {path}\n"))
+        }
         TranscriptEvent::SessionStopped(path, lines) => {
             write_stdout(&format!("\r\x1b[2K[sessão]  {lines} falas -> {path}\n"))
         }

@@ -13,7 +13,8 @@ fn app_with_channel() -> (OverlayApp, crossbeam_channel::Sender<TranscriptEvent>
         detected_language: None,
     }));
     let config = Arc::new(crate::config::Config::embedded());
-    (OverlayApp::new(rx, running, settings, config), tx)
+    let runner: Arc<dyn CommandRunner> = Arc::new(crate::process::FakeRunner::new(b"[]".to_vec()));
+    (OverlayApp::new(rx, running, settings, config, runner), tx)
 }
 
 #[test]
@@ -217,6 +218,56 @@ fn markers_drawn_next_to_speech_are_ascii() {
         TRANSLATION_MARKER.is_ascii(),
         "{TRANSLATION_MARKER:?} risks rendering as tofu"
     );
+}
+
+#[test]
+fn the_record_is_reachable_from_the_moment_it_starts() {
+    // The button needs a path before the first sentence is finished. The
+    // pipeline creates the file at "grava" precisely so this is possible.
+    let (mut app, tx) = app_with_channel();
+    assert!(app.session_path.is_none(), "nothing to open yet");
+
+    tx.send(TranscriptEvent::SessionStarted(
+        "/tmp/sessions/2026-08-20_14-00-00.md".into(),
+    ))
+    .unwrap();
+    app.drain_events();
+    assert_eq!(
+        app.session_path.as_deref(),
+        Some("/tmp/sessions/2026-08-20_14-00-00.md")
+    );
+}
+
+#[test]
+fn the_record_stays_reachable_after_the_session_closes() {
+    // Reading back what was just recorded is exactly when you want it, so
+    // stopping must not disable the button.
+    let (mut app, tx) = app_with_channel();
+    tx.send(TranscriptEvent::SessionStarted("/tmp/a.md".into()))
+        .unwrap();
+    tx.send(TranscriptEvent::SessionStopped("/tmp/a.md".into(), 12))
+        .unwrap();
+    app.drain_events();
+
+    assert!(app.recording.is_none(), "no longer recording");
+    assert_eq!(
+        app.session_path.as_deref(),
+        Some("/tmp/a.md"),
+        "but the record is still openable"
+    );
+}
+
+#[test]
+fn a_session_that_failed_to_create_its_file_offers_nothing_to_open() {
+    // The pipeline sends an empty path when the write failed. A button
+    // pointing at nothing is worse than a disabled one.
+    let (mut app, tx) = app_with_channel();
+    tx.send(TranscriptEvent::SessionStarted(String::new()))
+        .unwrap();
+    app.drain_events();
+
+    assert!(app.recording.is_some(), "recording still started");
+    assert!(app.session_path.is_none(), "with nothing to open");
 }
 
 #[test]

@@ -124,6 +124,22 @@ pub fn run_audio_pipeline(
 
     info!("stopping capture");
     streams.clear();
+
+    // Closing the window is a normal way to end a meeting, and it used to
+    // discard the whole recording. Every utterance is already on disk by now;
+    // this final write only refreshes the duration in the header.
+    if let Some(s) = recording.take() {
+        match s.write(&crate::session::default_dir()) {
+            Ok(path) => {
+                info!(path = %path.display(), lines = s.line_count(), "session closed on shutdown");
+                emit(
+                    &tx,
+                    TranscriptEvent::SessionStopped(path.display().to_string(), s.line_count()),
+                );
+            }
+            Err(e) => error!(error = ?e, "failed to write session on shutdown"),
+        }
+    }
     Ok(())
 }
 
@@ -229,6 +245,12 @@ fn handle_final(source: Source, trimmed: &str, mode: TranscribeMode, ctx: &mut C
 
     if let Some(ref mut s) = ctx.recording {
         s.push(trimmed, source.label());
+        // Persist immediately. Everything downstream of here — typing,
+        // dispatching, the window manager — can fail or hang; the record of
+        // what was said should already be on disk before any of it runs.
+        if let Err(e) = s.write(&crate::session::default_dir()) {
+            error!(error = ?e, "failed to persist session");
+        }
     }
 
     // Audio from a meeting is transcribed and nothing more: never typed, never
@@ -253,8 +275,19 @@ fn session_control(source: Source, trimmed: &str, ctx: &mut Ctx<'_>) -> bool {
     let vocab = config::active_vocab(ctx.config, ctx.settings);
     match vocab.and_then(|v| commands::classify(trimmed, v, ctx.config.threshold())) {
         Some(commands::VoiceCommand::SessionStart) if ctx.recording.is_none() => {
-            *ctx.recording = Some(crate::session::Session::start(source.label()));
-            emit(ctx.tx, TranscriptEvent::SessionStarted);
+            let session = crate::session::Session::start(source.label());
+            // Create the file now, empty. The overlay's button needs somewhere
+            // to point before the first sentence is finished, and an empty
+            // file that grows is easier to trust than one that appears later.
+            let path = match session.write(&crate::session::default_dir()) {
+                Ok(p) => p.display().to_string(),
+                Err(e) => {
+                    error!(error = ?e, "failed to create session file");
+                    String::new()
+                }
+            };
+            *ctx.recording = Some(session);
+            emit(ctx.tx, TranscriptEvent::SessionStarted(path));
             true
         }
         Some(commands::VoiceCommand::SessionStop) => match ctx.recording.take() {

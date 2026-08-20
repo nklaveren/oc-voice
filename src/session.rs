@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
-use tracing::info;
+use tracing::{debug, info};
 
 pub struct Session {
     started: Instant,
@@ -108,16 +108,34 @@ impl Session {
         seen
     }
 
-    /// Write the session and return where it landed.
-    pub fn write(&self, dir: &Path) -> Result<PathBuf> {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-        let path = dir.join(format!(
+    /// Where this session's file lives. Fixed at start, so every write lands
+    /// on the same file instead of leaving a trail of partial ones.
+    pub fn path_in(&self, dir: &Path) -> PathBuf {
+        dir.join(format!(
             "{}.md",
             self.started_at.format("%Y-%m-%d_%H-%M-%S")
-        ));
-        std::fs::write(&path, self.to_markdown())
-            .with_context(|| format!("writing {}", path.display()))?;
-        info!(path = %path.display(), lines = self.lines.len(), "session written");
+        ))
+    }
+
+    /// Write the session and return where it landed.
+    ///
+    /// Called after **every** utterance, not only when the session closes. A
+    /// recording that lives in memory until someone says the stop word is
+    /// lost to a crash, a closed window, or a Ctrl+C — and the longer the
+    /// meeting ran, the more there was to lose. An hour of notes should not
+    /// depend on the app exiting politely.
+    ///
+    /// Written to a temporary file and renamed into place. A rewrite
+    /// interrupted halfway would otherwise replace a good record with a
+    /// truncated one, which is a worse outcome than the crash that caused it.
+    pub fn write(&self, dir: &Path) -> Result<PathBuf> {
+        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        let path = self.path_in(dir);
+        let tmp = path.with_extension("md.part");
+        std::fs::write(&tmp, self.to_markdown())
+            .with_context(|| format!("writing {}", tmp.display()))?;
+        std::fs::rename(&tmp, &path).with_context(|| format!("replacing {}", path.display()))?;
+        debug!(path = %path.display(), lines = self.lines.len(), "session written");
         Ok(path)
     }
 }
@@ -189,6 +207,36 @@ mod tests {
         assert!(md.contains("They should have a parent."));
         assert!(!md.contains("Eles devem ter um pai"));
         assert!(md.contains("sem tradução"));
+    }
+
+    #[test]
+    fn a_session_is_on_disk_before_anyone_says_stop() {
+        // What this pins: the record used to exist only in memory until the
+        // stop word arrived. A closed window or a Ctrl+C threw away the whole
+        // meeting, and the longer it ran the more it cost.
+        let dir = std::env::temp_dir().join(format!("oc-voice-test-{}", std::process::id()));
+        let mut s = Session::start("reunião");
+        s.push("first thing said", "reunião");
+        let path = s.write(&dir).expect("written mid-session");
+
+        let on_disk = std::fs::read_to_string(&path).expect("readable");
+        assert!(on_disk.contains("first thing said"));
+
+        // Later utterances land in the same file, not a new one.
+        s.push("second thing said", "você");
+        let again = s.write(&dir).expect("written again");
+        assert_eq!(path, again, "each write must replace, not accumulate files");
+        let on_disk = std::fs::read_to_string(&path).expect("readable");
+        assert!(on_disk.contains("first thing said"));
+        assert!(on_disk.contains("second thing said"));
+
+        // And nothing half-written is left behind.
+        assert!(
+            !path.with_extension("md.part").exists(),
+            "temporary file survived the rename"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

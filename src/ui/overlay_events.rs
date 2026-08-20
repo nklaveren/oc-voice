@@ -96,12 +96,18 @@ impl OverlayApp {
                     self.buffered = 0;
                     self.push_line(format!("[sent] {s}"), Source::Mic);
                 }
-                TranscriptEvent::SessionStarted => {
+                TranscriptEvent::SessionStarted(path) => {
                     self.partial_mic.clear();
                     self.recording = Some((std::time::Instant::now(), 0));
+                    if !path.is_empty() {
+                        self.session_path = Some(path);
+                    }
                 }
                 TranscriptEvent::SessionStopped(path, lines) => {
                     self.recording = None;
+                    // Kept after the session closes: reading back what was
+                    // just recorded is exactly when the button is wanted.
+                    self.session_path = Some(path.clone());
                     self.push_line(format!("[sessão] {lines} falas -> {path}"), Source::Mic);
                 }
                 TranscriptEvent::Translated { original, text } => {
