@@ -29,11 +29,16 @@ monitor = "middle"
 hang_ms = 960
 max_seconds = 20
 partial_every_ms = 900
+# Audio kept ahead of the VAD's decision. A word's soft onset sits below the
+# speech threshold for the first few 32 ms frames; without this it is thrown
+# away. A long sentence loses a syllable, a short command loses everything.
+preroll_ms = 300
 
 [segmentation.subtitle]
 hang_ms = 320
 max_seconds = 8
 partial_every_ms = 700
+preroll_ms = 300
 
 [pt]
 prefix = ["computador"]

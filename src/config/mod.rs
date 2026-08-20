@@ -78,6 +78,10 @@ pub struct Segmentation {
     pub max_seconds: u64,
     /// How often a partial is refreshed while someone is speaking.
     pub partial_every_ms: u64,
+    /// Audio kept ahead of the VAD's decision, so a word's soft onset is not
+    /// lost while silero makes up its mind. Short commands are almost all
+    /// onset, which is why they disappeared entirely when this was zero.
+    pub preroll_ms: u64,
 }
 
 impl Default for Segmentation {
@@ -86,6 +90,7 @@ impl Default for Segmentation {
             hang_ms: 640,
             max_seconds: 20,
             partial_every_ms: 800,
+            preroll_ms: 300,
         }
     }
 }
@@ -102,6 +107,7 @@ struct SegmentationPatch {
     hang_ms: Option<u64>,
     max_seconds: Option<u64>,
     partial_every_ms: Option<u64>,
+    preroll_ms: Option<u64>,
 }
 
 impl SegmentationPatch {
@@ -114,6 +120,9 @@ impl SegmentationPatch {
         }
         if let Some(v) = self.partial_every_ms {
             base.partial_every_ms = v;
+        }
+        if let Some(v) = self.preroll_ms {
+            base.preroll_ms = v;
         }
     }
 }
@@ -170,6 +179,7 @@ impl Default for SegmentationSet {
                 hang_ms: 960,
                 max_seconds: 20,
                 partial_every_ms: 900,
+                preroll_ms: 300,
             },
             // A meeting rarely offers 640 ms of silence, so the old default
             // ran every segment to the 20 s cap: a wall of text that also
@@ -181,6 +191,7 @@ impl Default for SegmentationSet {
                 hang_ms: 320,
                 max_seconds: 8,
                 partial_every_ms: 700,
+                preroll_ms: 300,
             },
         }
     }

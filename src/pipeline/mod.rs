@@ -115,7 +115,13 @@ pub fn run_audio_pipeline(
                 continue;
             }
             idle = false;
+            let preroll_ms = config
+                .segmentation(mode == TranscribeMode::Translate)
+                .preroll_ms;
             for (frame, is_speech) in frames {
+                // Sized before the frame is pushed: the buffer has to already
+                // hold the run-up by the time the VAD says "speech".
+                stream.segment.set_preroll_ms(preroll_ms);
                 stream.segment.push_frame(&frame, is_speech);
                 let mut ctx = Ctx {
                     config: &config,
