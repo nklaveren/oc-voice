@@ -59,12 +59,16 @@ pub(crate) fn match_exact<'a>(
 /// A pattern with slots, e.g. `"monitor da {direcao}"`. Slot tables are the
 /// per-language vocabulary (`directions`, `numbers`) of M1.3; M2.1 adds the
 /// live-window resolver for `{alvo}`.
+// Templates gain their caller in M3.1 (the dispatch module); until then only
+// tests exercise them.
+#[allow(dead_code)]
 pub(crate) struct Template {
     pub(crate) pattern: String,
     pub(crate) slots: HashMap<String, Vec<String>>,
 }
 
 impl Template {
+    #[allow(dead_code)]
     pub(crate) fn new(pattern: &str, slots: &[(&str, &[&str])]) -> Self {
         Template {
             pattern: pattern.to_string(),
@@ -82,6 +86,7 @@ impl Template {
 }
 
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 pub(crate) struct TemplateMatch {
     pub(crate) template_index: usize,
     pub(crate) score: f64,
@@ -92,6 +97,7 @@ pub(crate) struct TemplateMatch {
 /// `"monitor da {direcao}"`. The word-count gate applies to the filled
 /// template, so fixed words and slots line up one-to-one with the spoken
 /// words. A template's score is its weakest word.
+#[allow(dead_code)]
 pub(crate) fn match_template(
     spoken: &str,
     templates: &[Template],

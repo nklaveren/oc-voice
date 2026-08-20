@@ -1,5 +1,3 @@
-// Only tests call the matcher until M1.2 wires it into `classify`.
-#[allow(dead_code)]
 pub mod matcher;
 
 use crate::input::inject::{type_key, type_shift_return, type_text};
@@ -28,37 +26,37 @@ pub enum VoiceCommand {
 
 /// Classify a final transcription into a voice command.
 ///
-/// Keyword matching against a fixed table: the whole normalized utterance must
-/// equal a keyword. This is fragile against ASR error and is replaced by
-/// similarity matching in M1 — see BACKLOG.md.
+/// Similarity matching against the closed command vocabulary — see M1.1/M1.2
+/// in BACKLOG.md. Utterances with no candidate of the same word count are
+/// refused before scoring and fall through to dictation.
 pub fn classify(text: &str) -> Option<VoiceCommand> {
-    info!(text = %text, "keyword fallback classification");
-    let lower = fold_diacritics(&text.to_lowercase());
-    let words: Vec<&str> = lower
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .collect();
-    let normalized = words.join(" ");
+    info!(text = %text, "similarity classification");
 
-    if words.len() > 5 {
-        return Some(VoiceCommand::Dictation);
-    }
+    // The vocabulary M1.3 moves to commands.toml — same words the M1.1
+    // measurements ran against.
+    const SEND: &[&str] = &["cambio", "envia", "manda", "pronto"];
+    const CANCEL: &[&str] = &["cancela", "limpa", "descarta"];
+    const NEWLINE: &[&str] = &["nova linha", "pula linha"];
 
-    let send_keywords = ["envia", "enviar", "manda", "mandar", "cambio", "pronto"];
-    let cancel_keywords = ["cancela", "cancelar", "limpa", "limpar", "descarta"];
-    let newline_keywords = ["nova linha", "pula linha", "newline", "enter"];
-
-    let text_lower = normalized.as_str();
-
-    if send_keywords.contains(&text_lower) {
+    if matcher::match_exact(text, SEND, matcher::DEFAULT_THRESHOLD).is_some() {
         return Some(VoiceCommand::Send);
     }
-    if cancel_keywords.contains(&text_lower) {
+    if matcher::match_exact(text, CANCEL, matcher::DEFAULT_THRESHOLD).is_some() {
         return Some(VoiceCommand::Cancel);
     }
-    if newline_keywords.contains(&text_lower) {
+    if matcher::match_exact(text, NEWLINE, matcher::DEFAULT_THRESHOLD).is_some() {
         return Some(VoiceCommand::Newline);
     }
+
+    // The send-to path keeps exact prefix matching and the alias table until
+    // M2.1 replaces both with the live-window matcher.
+    let lower = fold_diacritics(&text.to_lowercase());
+    let normalized = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let text_lower = normalized.as_str();
 
     let send_to_prefixes = [
         "enviar para ",
@@ -191,6 +189,20 @@ mod tests {
                 target: "firefox".to_string()
             })
         );
+    }
+
+    #[test]
+    fn asr_variants_classify_through_the_public_api() {
+        // M1.2: the M1.1 measurements hold through `classify`, not just the
+        // matcher's own unit tests.
+        for spoken in ["sambio", "cambiu", "kambio", "quambio", "cambrio"] {
+            assert_eq!(classify(spoken), Some(VoiceCommand::Send), "{spoken}");
+        }
+        assert_eq!(classify("cancelar"), Some(VoiceCommand::Cancel));
+        assert_eq!(classify("nova linia"), Some(VoiceCommand::Newline));
+        for spoken in ["pronto falei", "sao paulo", "bom dia"] {
+            assert_eq!(classify(spoken), Some(VoiceCommand::Dictation), "{spoken}");
+        }
     }
 
     #[test]

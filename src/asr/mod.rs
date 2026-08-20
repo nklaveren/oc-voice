@@ -1,3 +1,4 @@
+use crate::commands::matcher;
 use crate::{AppSettings, TranscribeMode, MIN_TRANSCRIBE_SAMPLES, TARGET_SAMPLE_RATE};
 use anyhow::{Context, Result};
 use std::sync::{Arc, Mutex};
@@ -86,11 +87,14 @@ pub fn filter_hallucination(text: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    for h in HALLUCINATIONS {
-        if trimmed.eq_ignore_ascii_case(h) {
-            debug!(text = %trimmed, "filtered hallucination");
-            return String::new();
-        }
+    // Same similarity path as command classification (M1.2): whisper varies
+    // its hallucinations ("obrigado por assistir!" / "obrigado por assistir"),
+    // and exact comparison missed every variant not literally in the list.
+    if let Some((matched, score)) =
+        matcher::match_exact(trimmed, HALLUCINATIONS, matcher::DEFAULT_THRESHOLD)
+    {
+        debug!(text = %trimmed, matched, score, "filtered hallucination");
+        return String::new();
     }
     text.to_string()
 }
