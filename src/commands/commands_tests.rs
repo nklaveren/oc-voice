@@ -203,13 +203,15 @@ fn the_mode_bar_is_higher_than_the_command_bar() {
 }
 
 #[test]
-fn a_word_that_is_both_filler_and_command_still_commands() {
-    // "isso" is in `send` and in `fillers`, which only works because
-    // stripping an utterance down to nothing returns it untouched. That is an
-    // accident of ordering, and reordering the two steps would break it in
-    // silence — so it is pinned rather than left to be rediscovered.
-    assert_eq!(classify("isso"), Some(VoiceCommand::Send));
-    // And as filler it still comes off, so the word it wraps is reached.
+fn filler_stripping_still_reaches_the_command_word() {
+    // "isso" used to sit in both `send` and `fillers`; it was removed from
+    // `send`, so on its own it is filler only — stripping an utterance down
+    // to nothing returns it untouched, and no command matches.
+    assert!(matches!(
+        classify("isso"),
+        Some(VoiceCommand::Dictation) | None
+    ));
+    // As filler it still comes off, so the word it wraps is reached.
     assert_eq!(classify("cancela isso"), Some(VoiceCommand::Cancel));
     // A pure-filler utterance that is not also a command stays dictation.
     assert!(matches!(

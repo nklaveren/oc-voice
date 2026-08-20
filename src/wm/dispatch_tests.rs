@@ -168,6 +168,48 @@ fn unrecognized_speech_dispatches_nothing() {
     assert!(say("bom dia pessoal", b"[]").0.is_empty());
 }
 
+#[test]
+fn closing_by_name_closes_that_window_and_not_the_focused_one() {
+    // Reported live: "Fechar Teams." asked to confirm `kill_active`, and the
+    // "Sim." that followed closed whatever was in focus. The named window was
+    // never consulted — though the resolver could see it.
+    let (calls, pending) = say("fechar brave", CLIENTS);
+    assert!(calls.is_empty(), "closing still waits for a yes");
+    let Some(PendingAction::Dispatch { args, .. }) = pending else {
+        panic!("naming a window to close must arm a confirmation");
+    };
+    assert_eq!(args, ["dispatch", "closewindow", "address:0xb1"]);
+}
+
+#[test]
+fn closing_a_window_that_is_not_open_asks_nothing() {
+    // The half that makes the other half safe. `unwrap_or_default()` used to
+    // arm an *empty* dispatch here: the confirmation appeared, "sim" ran
+    // `hyprctl` with no arguments, and the sentence was swallowed from
+    // dictation on the way. Nothing to close means nothing to ask.
+    let (calls, pending) = say("fechar fotoshop", CLIENTS);
+    assert!(calls.is_empty());
+    assert!(
+        pending.is_none(),
+        "an unfindable target must not arm a confirmation"
+    );
+    // And it reports the miss, so Enter mode still dictates the sentence
+    // instead of losing it.
+    let (fake, runner, config) = setup(CLIENTS);
+    let vocab = config.vocab("pt").unwrap().clone();
+    let (tx, _rx) = crossbeam_channel::unbounded();
+    let mut p = None;
+    assert!(!dispatch_spoken(
+        &vocab,
+        &config,
+        "fechar fotoshop",
+        &runner,
+        &tx,
+        &mut p
+    ));
+    let _ = fake;
+}
+
 mod live {
     use super::*;
 

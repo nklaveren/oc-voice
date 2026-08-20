@@ -196,16 +196,26 @@ fn execute_action(
 ) -> bool {
     // M3.3/M4.3: destructive actions never fire directly.
     if config.is_destructive(action) {
-        emit(
-            tx,
-            TranscriptEvent::AwaitingConfirmation(format!("{action}?")),
-        );
+        // Resolve before arming, not after confirming. This used to be
+        // `unwrap_or_default()`: a slot that resolved to nothing armed an
+        // *empty* dispatch and still reported success, so "fecha o photoshop"
+        // with no Photoshop open asked for confirmation, ran `hyprctl` with no
+        // arguments on yes, and swallowed the sentence either way. A question
+        // whose answer does nothing is worse than no question.
+        let Some(args) = dispatch_args(action, slot, vocab, config, runner) else {
+            debug!(action, ?slot, "slot did not resolve; nothing to confirm");
+            return false;
+        };
+        // Name what will be closed. "kill_active?" is answerable; "which
+        // window?" is the part the user cannot see, and this is the one
+        // prompt where guessing wrong is not undoable.
+        let what = match slot {
+            Some(s) => format!("{action} \"{s}\"?"),
+            None => format!("{action}?"),
+        };
+        emit(tx, TranscriptEvent::AwaitingConfirmation(what));
         *pending = Some(PendingAction::Dispatch {
-            args: dispatch_args(action, slot, vocab, config, runner)
-                .unwrap_or_default()
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
+            args,
             label: action.to_string(),
         });
         return true;
@@ -234,6 +244,19 @@ fn dispatch_args(
         "fullscreen" => vec!["dispatch".into(), "fullscreen".into()],
         "toggle_floating" => vec!["dispatch".into(), "togglefloating".into()],
         "kill_active" => vec!["dispatch".into(), "killactive".into()],
+        // Close the window you *name*, as opposed to the one you happen to be
+        // looking at. Goes through the same resolver as focusing, so an
+        // unfindable name closes nothing at all — which is the only acceptable
+        // failure mode for this action.
+        "close_window" => {
+            let windows = target::live_windows(runner);
+            let resolved = target::resolve(slot?, &vocab.targets, &windows, threshold)?;
+            vec![
+                "dispatch".into(),
+                "closewindow".into(),
+                format!("address:{}", resolved.address),
+            ]
+        }
         // Cycle within the current workspace. `cyclenext` wraps, so these are
         // the two directions of one motion rather than two behaviours.
         "next_window" => vec!["dispatch".into(), "cyclenext".into()],

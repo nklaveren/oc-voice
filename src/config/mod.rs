@@ -238,7 +238,7 @@ impl Config {
             destructive: raw
                 .matching
                 .destructive
-                .unwrap_or_else(|| vec!["kill_active".to_string()]),
+                .unwrap_or_else(|| vec!["kill_active".to_string(), "close_window".to_string()]),
             languages: raw.languages,
         }
     }

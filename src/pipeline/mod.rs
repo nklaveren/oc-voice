@@ -51,7 +51,7 @@ pub fn run_audio_pipeline(
     let load_start = Instant::now();
 
     let mut ctx_params = WhisperContextParameters::default();
-    #[cfg(feature = "cuda")]
+    #[cfg(any(feature = "cuda", feature = "metal"))]
     ctx_params.use_gpu(true);
     ctx_params.flash_attn(true);
 

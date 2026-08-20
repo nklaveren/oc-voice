@@ -102,6 +102,34 @@ pub fn run_level_meter(running: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
+/// Name fragment of the virtual device macOS users route system audio into.
+/// BlackHole (brew install blackhole-2ch) shows up as an input device, so the
+/// meeting path reuses the exact capture pipeline the microphone uses.
+pub const MAC_SYSTEM_AUDIO_DEVICE: &str = "BlackHole";
+
+/// First input device whose name contains `name`, case-insensitive.
+fn device_named(name: &str) -> Result<cpal::Device> {
+    let host = cpal::default_host();
+    let mut available = Vec::new();
+    if let Ok(devices) = host.input_devices() {
+        for d in devices {
+            let device_name = d.name().unwrap_or_default();
+            if name_matches(&device_name, name) {
+                return Ok(d);
+            }
+            available.push(device_name);
+        }
+    }
+    Err(anyhow!(
+        "no input device matching '{name}' — available: {}",
+        available.join(", ")
+    ))
+}
+
+fn name_matches(device_name: &str, needle: &str) -> bool {
+    device_name.to_lowercase().contains(&needle.to_lowercase())
+}
+
 /// blocking call that keeps mic capture alive until `running` flips.
 pub fn run_capture<P>(producer: P, running: Arc<AtomicBool>) -> Result<()>
 where
@@ -111,6 +139,14 @@ where
     let device = host
         .default_input_device()
         .ok_or_else(|| anyhow!("no default input device"))?;
+    capture_device(device, producer, running)
+}
+
+/// Capture any cpal input device until `running` flips.
+fn capture_device<P>(device: cpal::Device, producer: P, running: Arc<AtomicBool>) -> Result<()>
+where
+    P: Producer<Item = f32> + Send + 'static,
+{
     info!(device = %device.name().unwrap_or_else(|_| "?".into()), "using input");
 
     let default_config = device
@@ -195,6 +231,18 @@ pub fn run_capture_system<P>(
 where
     P: Producer<Item = f32> + Send + 'static,
 {
+    // macOS has no PipeWire: system audio arrives through the BlackHole
+    // virtual device, which cpal sees as an ordinary input. Setup (install
+    // BlackHole, route a Multi-Output Device into it) is on the user — see
+    // M8.3 in BACKLOG.md.
+    if cfg!(target_os = "macos") {
+        let device = device_named(MAC_SYSTEM_AUDIO_DEVICE).context(
+            "modo reunião no macOS precisa do BlackHole (brew install blackhole-2ch) \
+             e de um Multi-Output Device apontando para ele — veja M8.3 no BACKLOG.md",
+        )?;
+        return capture_device(device, producer, running);
+    }
+
     let sink_target = get_default_sink_target(&runner);
     info!(target = %sink_target, "capturing system audio from sink monitor");
 
@@ -330,4 +378,19 @@ fn get_default_sink_target(runner: &Arc<dyn CommandRunner>) -> String {
     });
 
     default_sink_name.unwrap_or_else(|| "@DEFAULT_AUDIO_SINK@".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_name_match_is_case_insensitive_substring() {
+        assert!(name_matches("BlackHole 2ch", MAC_SYSTEM_AUDIO_DEVICE));
+        assert!(name_matches("blackhole", MAC_SYSTEM_AUDIO_DEVICE));
+        assert!(!name_matches(
+            "MacBook Pro Microphone",
+            MAC_SYSTEM_AUDIO_DEVICE
+        ));
+    }
 }

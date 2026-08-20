@@ -6,6 +6,8 @@ description = "Voice dictation and window control for Hyprland, fully local"
 license = "MIT"
 authors = ["Nicolas Van Klaveren"]
 readme = "README.md"
+keywords = ["voice", "dictation", "whisper", "hyprland", "speech-recognition"]
+categories = ["command-line-utilities", "multimedia::audio"]
 # repository: add the GitHub URL when the repo is published
 
 [[bin]]
@@ -53,6 +55,8 @@ eframe = { version = "0.34", default-features = false, features = ["default_font
 [features]
 default = ["cuda"]
 cuda = ["whisper-rs/cuda"]
+# macOS GPU path: whisper.cpp Metal backend
+metal = ["whisper-rs/metal"]
 cpu = []
 
 [profile.release]

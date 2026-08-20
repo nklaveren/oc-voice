@@ -9,6 +9,10 @@
 
 [matching]
 threshold = 0.82
+# Ações que nunca disparam direto: pedem um "confirma" falado antes. Fechar
+# uma janela não tem desfazer, e a fala que pede isso passou por um
+# reconhecedor.
+destructive = ["kill_active", "close_window"]
 
 # Os idiomas que realmente se fala aqui. Uma detecção fora desta lista é
 # ruído, não discordância — whisper nomeia qualquer um dos cem idiomas dele
@@ -61,7 +65,7 @@ preroll_ms = 300
 [pt]
 prefix = ["computador"]
 send_to = ["enviar para", "envia para", "enviar pelo", "envia pelo", "enviar via", "envia via", "enviar pro", "envia pro", "manda para", "manda pelo", "manda via", "manda pro"]
-send = ["câmbio", "cambio", "envia", "enviar", "manda", "mandar", "pronto", "vai", "isso", "manda ver", "pode enviar", "pode mandar"]
+send = ["câmbio", "cambio", "envia", "enviar", "manda", "mandar", "pronto", "vai", "manda ver", "pode enviar", "pode mandar"]
 cancel = ["cancela", "cancelar", "limpa", "limpar", "descarta", "descartar", "apaga", "apagar", "esquece"]
 newline = ["nova linha", "pula linha"]
 session_start = ["grava", "gravar", "gravar sessão", "inicia sessão"]
@@ -246,6 +250,30 @@ action = "focus_window"
 pattern = "foca no {alvo}"
 action = "focus_window"
 
+# Fechar o que se NOMEIA. "Fechar Teams." pontuava 0.87 contra "fechar
+# janela" em `wm_commands`, fechava a janela em foco e jogava fora a palavra
+# que dizia o que fechar. As duas formas convivem: sem alvo, fecha a de foco;
+# com alvo, fecha aquela — e um alvo que não existe não fecha nada.
+[[pt.templates]]
+pattern = "fecha o {alvo}"
+action = "close_window"
+
+[[pt.templates]]
+pattern = "fecha a {alvo}"
+action = "close_window"
+
+[[pt.templates]]
+pattern = "fecha {alvo}"
+action = "close_window"
+
+[[pt.templates]]
+pattern = "fechar o {alvo}"
+action = "close_window"
+
+[[pt.templates]]
+pattern = "fechar {alvo}"
+action = "close_window"
+
 [pt.targets]
 navegador = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]
 terminal = ["alacritty", "kitty", "foot", "wezterm", "ghostty"]
@@ -348,6 +376,10 @@ action = "focus_window"
 [[en.templates]]
 pattern = "focus {alvo}"
 action = "focus_window"
+
+[[en.templates]]
+pattern = "close {alvo}"
+action = "close_window"
 
 [en.targets]
 browser = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]

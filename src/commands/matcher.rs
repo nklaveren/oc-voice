@@ -35,20 +35,36 @@ pub(crate) fn normalize(text: &str) -> String {
 /// Match the whole utterance against `candidates`. Only candidates with the
 /// same word count as the normalized utterance are scored; the highest score
 /// at or above `threshold` wins. Returns the candidate and its score.
+///
+/// **A phrase scores as its weakest word**, which is what `match_template`
+/// already did and this did not. Scoring the joined string instead let a
+/// shared opening carry an entirely different ending: "fechar teams" scored
+/// 0.87 against "fechar janela" — over the bar — and closed the focused
+/// window while the word naming what to close was thrown away. Jaro-Winkler
+/// pays a prefix bonus, and on a joined string the prefix is a whole word.
+///
+/// Per word, "teams" against "janela" is 0.45 and the phrase is refused.
+/// Refusing is the cheap direction: an utterance that falls through is
+/// dictated, and a dictated line can be cancelled.
 pub(crate) fn match_exact<'a>(
     spoken: &str,
     candidates: &[&'a str],
     threshold: f64,
 ) -> Option<(&'a str, f64)> {
     let utterance = normalize(spoken);
-    let words = utterance.split_whitespace().count();
+    let spoken_words: Vec<&str> = utterance.split_whitespace().collect();
     let mut best: Option<(&str, f64)> = None;
     for &candidate in candidates {
         let normalized = normalize(candidate);
-        if normalized.split_whitespace().count() != words {
+        let candidate_words: Vec<&str> = normalized.split_whitespace().collect();
+        if candidate_words.len() != spoken_words.len() {
             continue;
         }
-        let score = jaro_winkler(&utterance, &normalized);
+        let score = spoken_words
+            .iter()
+            .zip(&candidate_words)
+            .map(|(s, c)| jaro_winkler(s, c))
+            .fold(1.0_f64, f64::min);
         if score >= threshold && best.is_none_or(|(_, s)| score > s) {
             best = Some((candidate, score));
         }
@@ -323,6 +339,48 @@ mod tests {
             .expect("should match move-to-workspace template");
         assert_eq!(m.template_index, 2);
         assert_eq!(m.slots.get("numero").map(String::as_str), Some("tres"));
+    }
+
+    #[test]
+    fn a_shared_opening_does_not_carry_a_different_ending() {
+        // From a live log: "Fechar Teams." scored 0.87 against "fechar
+        // janela" and closed the focused window. Joined-string Jaro-Winkler
+        // pays its prefix bonus for a whole matching word, so the word that
+        // said *what* to close was outvoted by the word that said nothing.
+        //
+        // Scored per word, "teams" against "janela" is 0.45 and the phrase is
+        // refused — the same rule `match_template` has always used.
+        let phrases: &[&str] = &["fechar janela", "nova linha", "tela cheia"];
+        for spoken in ["fechar teams", "fechar brave", "nova ideia", "tela azul"] {
+            assert_eq!(
+                match_exact(spoken, phrases, DEFAULT_THRESHOLD),
+                None,
+                "{spoken:?} names something and must not match a generic phrase"
+            );
+        }
+        // And the phrases themselves, mangled the way ASR mangles them, still
+        // match.
+        for (spoken, expected) in [
+            ("fechar janela", "fechar janela"),
+            ("fexar janela", "fechar janela"), // 0.86 per word
+            ("nova linia", "nova linha"),      // 0.91
+            ("tela sheia", "tela cheia"),      // 0.87
+        ] {
+            assert!(
+                matches!(match_exact(spoken, phrases, DEFAULT_THRESHOLD), Some((c, _)) if c == expected),
+                "{spoken:?} should still reach {expected:?}"
+            );
+        }
+        // The cost, stated rather than discovered later: the joined score
+        // averaged a mangled word against its well-heard neighbour, and that
+        // averaging is exactly what carried "teams" on the back of "fechar".
+        // Losing one loses the other. "tela xeia" scored 0.94 joined and
+        // scores 0.78 per word, so a phrase now needs each of its words heard
+        // roughly right rather than most of its letters.
+        //
+        // Refusal is the recoverable direction — the utterance is dictated,
+        // and a dictated line can be cancelled. A wrong `closewindow` cannot.
+        assert_eq!(match_exact("tela xeia", phrases, DEFAULT_THRESHOLD), None);
     }
 
     #[test]

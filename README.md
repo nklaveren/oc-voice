@@ -64,10 +64,15 @@ resolve, to the mode that absorbed them.
 | "leva pra \<n\>" | move window to workspace |
 | "foca o \<alvo\>" | focus a window by name |
 | "tela cheia" / "flutuante" | fullscreen / toggle floating |
-| "fecha" → "confirma" | close window (always asks first) |
+| "fecha" → "confirma" | close the focused window (always asks first) |
+| "fecha o \<alvo\>" → "confirma" | close the window you name, not the focused one |
 
 Destructive actions and low-confidence window matches wait for spoken
-confirmation ("confirma" / "não"). Everything else fires immediately.
+confirmation ("confirma" / "não"). Everything else fires immediately. The
+confirmation names its target — `close_window "teams"?`, not `close_window?` —
+because which window is the part you cannot see, and this is the one prompt
+where guessing wrong has no undo. A name that matches no open window closes
+nothing and asks nothing; the sentence falls through to dictation.
 
 ## Configuration
 
@@ -291,9 +296,9 @@ usable; above 25% the problem is signal or model, not tuning.
   and screen capture — have a standard `xdg-desktop-portal` path that is not
   used here; listing windows has no portal at all, and that one is a real
   Wayland gap rather than a shortcut.
-- macOS. See `README-MAC.md` for the map. Nothing is impossible there and
-  several parts would be better, but it is a second platform backend, not a
-  build flag.
+- macOS. The core is partially ported (Metal build, keystroke injection via
+  osascript, meeting audio via BlackHole); window management is not. See M8
+  in `BACKLOG.md` for the map and what remains.
 - Voice **commands** in Japanese/Chinese — transcription and dictation work,
   but the command matcher assumes space-separated alphabetic script
 - Only NVIDIA/CUDA has been tested for GPU inference

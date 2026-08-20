@@ -30,6 +30,7 @@ fn embedded_bindings_are_internally_consistent() {
         "fullscreen",
         "toggle_floating",
         "kill_active",
+        "close_window",
         "move_focus",
         "workspace",
         "move_to_workspace",

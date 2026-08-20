@@ -67,6 +67,11 @@ pt  abre o brave             -> dispatch focuswindow address:0xb1
 pt  mostra o brave           -> dispatch focuswindow address:0xb1
 pt  foca o brave             -> dispatch focuswindow address:0xb1
 pt  foca no brave            -> dispatch focuswindow address:0xb1
+pt  fecha o brave            -> (confirma)
+pt  fecha a brave            -> (confirma)
+pt  fecha brave              -> (confirma)
+pt  fechar o brave           -> (confirma)
+pt  fechar brave             -> (confirma)
 en  close window             -> (confirma)
 en  floating                 -> dispatch togglefloating
 en  full screen              -> dispatch fullscreen
@@ -85,9 +90,9 @@ en  monitor middle           -> dispatch focusmonitor CCC-1
 en  monitor right            -> dispatch focusmonitor AAA-1
 en  monitor up               -> (nada)
 en  monitor samsung          -> dispatch focusmonitor BBB-1
-en  center window            -> dispatch cyclenext
+en  center window            -> (nada)
 en  down window              -> dispatch movefocus d
-en  left window              -> dispatch cyclenext
+en  left window              -> dispatch movefocus l
 en  middle window            -> (nada)
 en  right window             -> dispatch movefocus r
 en  up window                -> dispatch movefocus u
@@ -96,3 +101,4 @@ en  move to 3                -> dispatch movetoworkspace 3
 en  go to brave              -> dispatch focuswindow address:0xb1
 en  show brave               -> dispatch focuswindow address:0xb1
 en  focus brave              -> dispatch focuswindow address:0xb1
+en  close brave              -> (confirma)

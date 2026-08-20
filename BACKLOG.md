@@ -386,6 +386,35 @@ Não é um mecanismo próprio: é marcar o comando como destrutivo para a polít
 
 ---
 
+### M3.4 — Fechar o que se nomeia, e a frase genérica que vencia a específica ✅
+
+De um log real: **"Fechar Teams."** pediu `kill_active?`, o "Sim." seguinte fechou a janela em foco, e o Teams continuou aberto. A palavra que dizia *o que* fechar foi descartada — enquanto o resolvedor, duas linhas abaixo no probe, dizia `como alvo electron (1.00)`.
+
+A causa não era a tabela: era `match_exact` pontuar a **string juntada**. Jaro-Winkler paga bônus de prefixo, e numa string juntada o prefixo é uma palavra inteira, então `"fekhar teams"` contra `"fekhar janela"` deu **0.87** — acima do limiar de 0.82. `match_template` já pontuava pela palavra mais fraca; `match_exact`, não. Dois matchers no mesmo arquivo, pontuando a mesma coisa de dois jeitos.
+
+Por palavra, `teams` contra `janela` é **0.41** e a frase é recusada.
+
+O snapshot de bindings pegou dois casos que ninguém procurava, com a mesma raiz:
+
+| falado | era | é |
+|---|---|---|
+| `left window` | `dispatch cyclenext` | `dispatch movefocus l` |
+| `center window` | `dispatch cyclenext` | `(nada)` |
+
+Ambos casavam com o `wm_command` `"next window"` (0.879 juntado, 0.667 por palavra) e ciclavam janelas em vez de mover o foco. O snapshot tinha congelado isso como "o que sempre fez" — que é o serviço dele: fixa comportamento, não correção, e o diff é onde se decide qual dos dois era.
+
+**O custo, medido e não escondido:** a média sobre a string inteira resgatava uma palavra mal ouvida pela vizinha bem ouvida — e é exatamente esse resgate que carregava `teams` nas costas de `fechar`. Perder um é perder o outro. `"tela xeia"` fazia 0.94 juntado e faz 0.78 por palavra, então uma frase agora precisa de cada palavra ouvida mais ou menos certa, não da maioria das letras. A direção da perda é recusa → ditado, e linha ditada se cancela; `closewindow` errado, não.
+
+Junto, dois consertos que se sustentam:
+
+- Ação `close_window`, com templates `"fecha [o|a] {alvo}"` / `"fechar [o] {alvo}"` e `"close {alvo}"`, passando pelo mesmo resolvedor do foco. Nome que não acha janela não fecha nada.
+- O caminho destrutivo de `execute_action` resolvia o slot **depois** de armar: era `unwrap_or_default()`, então "fecha o photoshop" sem Photoshop aberto armava um despacho **vazio**, perguntava, rodava `hyprctl` sem argumentos no "sim", e engolia a frase do ditado nos dois casos. Pergunta cuja resposta não faz nada é pior que pergunta nenhuma. Agora resolve antes; se não resolve, não pergunta e devolve `false` para a frase cair no ditado.
+- A confirmação nomeia o alvo — `close_window "teams"?`, não `close_window?`. Qual janela é a parte que não se vê, e é o único prompt sem desfazer.
+
+**Aceite:** "fechar teams" → `closewindow address:…` do Teams após confirmação; "fecha" sozinho continua `killactive`; "fechar janela" continua `killactive`; alvo inexistente não pergunta nada.
+
+---
+
 ## M4 — Comando ou ditado
 
 O problema de projeto que realmente sobra. Não é o `hyprctl` — é decidir se "nova linha" é um comando ou parte da frase que a pessoa está ditando.
@@ -473,13 +502,15 @@ README novo precisa cobrir: o que é, requisitos reais (NixOS + flakes + driver 
 
 **Aceite:** nenhum dos três arquivos cita `base.en`. Nenhum lista como fora de escopo algo que existe no código.
 
-### M5.3 — CI
+### M5.3 — CI ❌ decidido contra
 
 `just check` roda só na sua máquina. Sem CI, o primeiro PR externo quebra o build sem ninguém perceber.
 
 GitHub Actions com `nix develop --command just check` mais `cargo test`. Usar a feature `cpu` — runner não tem GPU.
 
 **Aceite:** o workflow passa no CI. Um PR com `cargo fmt` sujo é reprovado.
+
+**Decisão (2026-08): não fazer.** O projeto é self-hosted por natureza: roda local, baixa ~874 MB de modelo, e só faz algo útil numa sessão Hyprland real. O gate é o `just check` local, e o CONTRIBUTING.md o torna obrigatório para PRs. Reabrir só se contribuições externas começarem a chegar.
 
 ### M5.4 — Caminho sem CUDA ✅ `fca4858`
 
@@ -677,6 +708,54 @@ Dependências: `smithay-client-toolkit` (layer-shell + event loop), `egui-wgpu` 
 
 ---
 
+## M8 — Porte macOS (parcial)
+
+Desvio consciente do "Compositores além do Hyprland" em *Fora de escopo*: o que foi portado é o **núcleo** (captura, ASR, injeção de texto, áudio de sistema via dispositivo virtual), não o WM. O port inteiro segue uma regra: cada plataforma é um impl novo de uma trait — `Injector` em [`src/input/inject.rs`](src/input/inject.rs) é o exemplo trabalhado — e nunca um `cfg` espalhado pelos call sites. Quem portar para Windows escreve `WindowsInjector` e mais nada nos callers.
+
+### M8.1 — Build com Metal ✅ (aguardando commit)
+
+`default = ["cuda"]` não existe no mac. [`Cargo.toml`](Cargo.toml) ganhou `metal = ["whisper-rs/metal"]` (a feature existe no whisper-rs 0.14) e o gate de GPU em [`src/pipeline/mod.rs`](src/pipeline/mod.rs) passou a `any(feature = "cuda", feature = "metal")`.
+
+Rodar no mac: `cargo run --release --no-default-features --features metal -- models/ggml-large-v3-turbo-q8_0.bin`. O onnxruntime vem de `brew install onnxruntime` + `ORT_DYLIB_PATH` apontando para o `libonnxruntime.dylib` (o `load-dynamic` do ort carrega em runtime). O [`flake.nix`](flake.nix) é Linux-only; no mac o caminho é brew + rustup.
+
+### M8.2 — Injeção de texto via adapter ✅ (aguardando commit)
+
+`trait Injector` (`type_text`, `type_key`, `type_shift_return`) com `LinuxInjector` (wtype → xdotool, intacto) e `MacInjector` (`osascript` dirigindo System Events: `keystroke "..."` com escaping de aspas/barra, Return por número de tecla, `using shift down`). `platform_injector()` escolhe por `cfg!(target_os)`. O `DryRunRunner` bloqueia `osascript` junto com wtype/xdotool, e os testes do `MacInjector` rodam no Linux via `FakeRunner` — o impl só emite strings, então é testável sem mac.
+
+Custo conhecido: o gate `vocab` baniu o literal `key code` (contém "code", nome de editor) que é sintaxe obrigatória do AppleScript — contornado com `concat!` e um comentário no lugar. Requer permissão de **Acessibilidade** para o processo hospedeiro.
+
+### M8.3 — Modo reunião via BlackHole ✅ parcial (aguardando commit)
+
+`pw-record` não existe no mac. O caminho portado: usuário instala BlackHole (`brew install blackhole-2ch`), roteia um Multi-Output Device para ele no Audio MIDI Setup, e `run_capture_system` em [`src/audio/capture.rs`](src/audio/capture.rs) captura o BlackHole como **input** cpal — o mesmo pipeline do microfone, via `device_named` + `capture_device` (constante `MAC_SYSTEM_AUDIO_DEVICE`). Sem BlackHole instalado, o modo reunião falha com erro que explica o setup.
+
+"Parcial": a captura depende de o usuário rotear o áudio do sistema para o dispositivo virtual, e não há como detectar que ele não o fez — o VAD simplesmente nunca vê fala.
+
+### M8.4 — WM via Aerospace
+
+O que falta para o modo Enter no mac disparar comandos de janela. `hyprctl` → [Aerospace](https://github.com/nikitabobko/AeroSpace) (CLI com `--json` estável; yabai exigiria desabilitar parcialmente o SIP). O resolvedor de alvos em [`src/wm/target.rs`](src/wm/target.rs) roda sobre structs próprias preenchidas do JSON do hyprctl: portar é escrever o parser do JSON do aerospace para as mesmas structs, mais um fixture em `tests/fixtures/`. Padrão do M8.2: `trait WmBackend`, `HyprctlBackend` intacto, `AerospaceBackend` novo.
+
+| hyprctl | aerospace |
+|---|---|
+| `clients -j` | `list-windows --all --json` |
+| `monitors -j` | `list-monitors --json` |
+| `dispatch workspace N` | `workspace N` |
+| `dispatch focuswindow address:…` | `focus --window-id <id>` |
+| `dispatch movefocus l/r/u/d` | `focus left/right/up/down` |
+
+Hoje os comandos de WM no mac degradam graciosamente: o overlay só se posiciona se `hyprctl version` responder, e a injeção não depende de hyprctl.
+
+### M8.5 — OCR via screencapture
+
+`grim -g` → `screencapture -R<x>,<y>,<w>,<h>` em [`src/ocr.rs`](src/ocr.rs). Atenção às unidades: `grim -g` recebe pixels lógicos e escreve físicos (o código compensa scale); `screencapture -R` trabalha em pontos, com o mesmo ajuste em telas Retina. `tesseract` é o mesmo binário via brew. Requer permissão de **Gravação de Tela**. Não começado — adiado por decisão do usuário.
+
+### M8.6 — Dev shell darwin
+
+[`flake.nix`](flake.nix) lista alsa, pipewire, cuda, wayland, wtype, grim — todos Linux-only. Ganhar um bloco `pkgs.stdenv.isDarwin` com onnxruntime + tesseract, ou documentar brew + rustup como caminho oficial. Não começado.
+
+**Aceite do M8 inteiro:** `just check` verde no mac (com `metal` no lugar de `cuda`), ditado Enter entregando texto via osascript, modo reunião legendando o BlackHole, e os itens não fechados listados aqui em vez de espalhados num doc à parte.
+
+---
+
 ## Ordem de execução
 
 M0 primeiro — mexer em código morto depois de construir por cima dele custa o dobro. Os gates de M0.4 entram cedo mesmo nascendo vermelhos: o `just vocab` vermelho é o que garante que M1.3 e M2.1 não sejam dados por prontos pela metade. Depois M1, que é o alicerce de tudo que vem: M2, M3 e M4 dependem todos do matcher. M2 antes de M3 porque a resolução de alvo é reusada pelo `focuswindow`. M4 pode ir em paralelo com M3, com uma exceção: M4.3 é a política de confirmação que M2.3 e M3.3 consomem, então precisa existir antes de qualquer um dos dois ser fechado. M5 fecha.
@@ -690,5 +769,5 @@ Registrado para não voltar como dúvida:
 - **Classificação por LLM.** Removida em M0.1. Se um dia o vocabulário virar aberto de verdade, o caminho é decodificação restrita por gramática GBNF com thinking desligado, não o prompt de texto livre que estava aqui.
 - **Wake word acústica.** O prefixo de M4.1 é textual e resolve o mesmo problema sem outro modelo na GPU.
 - **TTS e fallback por API remota.**
-- **Compositores além do Hyprland.** `wtype` e `hyprctl` são premissas assumidas.
+- **Compositores além do Hyprland.** `wtype` e `hyprctl` são premissas assumidas. O núcleo (captura, ASR, injeção) já foi portado para macOS sem violar isto — ver M8; o que continua fora é o WM de outros compositores como alvo de comandos de voz.
 - **Comandos de voz em japonês e chinês.** Transcrição e ditado seguem funcionando; comando exige tokenizador de escrita sem espaço, ver M1.3.

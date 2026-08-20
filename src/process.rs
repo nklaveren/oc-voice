@@ -38,7 +38,8 @@ impl DryRunRunner {
 
     fn is_mutating(program: &str, args: &[&str]) -> bool {
         // Anything that types, and any hyprctl call that is not a query.
-        matches!(program, "wtype" | "xdotool") || (program == "hyprctl" && !args.contains(&"-j"))
+        matches!(program, "wtype" | "xdotool" | "osascript")
+            || (program == "hyprctl" && !args.contains(&"-j"))
     }
 }
 
@@ -142,6 +143,10 @@ mod tests {
             ("hyprctl", vec!["dispatch", "focusmonitor", "DP-1"]),
             ("wtype", vec!["texto qualquer"]),
             ("xdotool", vec!["type", "texto"]),
+            (
+                "osascript",
+                vec!["-e", "tell application \"System Events\""],
+            ),
         ] {
             assert!(
                 DryRunRunner::is_mutating(prog, &args),
@@ -150,7 +155,7 @@ mod tests {
             let out = dry.output(prog, &args).unwrap();
             assert!(out.stdout.is_empty());
         }
-        assert_eq!(dry.blocked().len(), 5, "todas as chamadas registradas");
+        assert_eq!(dry.blocked().len(), 6, "todas as chamadas registradas");
     }
 
     #[test]
