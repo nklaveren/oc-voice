@@ -3,7 +3,8 @@
 ## Project snapshot
 
 - `oc-voice` is voice control for Hyprland: microphone -> text -> dictation, input
-  submission, and window/WM commands. Four modes: Input, Enter, Command, Translate.
+  submission, and window/WM commands. Two modes, split by whose voice is heard:
+  `Enter` (your microphone) and `Translate` (the machine's own output).
 - Command recognition is similarity matching (Jaro-Winkler + word-count gate) against
   a per-language vocabulary in commands.toml; window targets resolve against live
   hyprctl output in two stages (category, then token). There is no LLM anywhere.
@@ -68,9 +69,16 @@
 - Default model is `ggml-large-v3-turbo-q8_0.bin`; see the `justfile`.
 - Segmentation is VAD-driven: partials while speaking, final on silence. There is no
   fixed-size chunking.
-- Three modes exist: `Input` (types as you speak), `Enter` (buffers until a send
-  keyword), `Translate` (transcribes system audio). A `Command` mode is planned.
-- Portuguese is the primary language; multi-language command support is planned in M1.3.
+- Two modes exist. `Enter` buffers your speech until a send word and dispatches
+  window commands inline; `Translate` subtitles system audio while the microphone
+  keeps running, so a recorded session holds both sides of a call.
+- `Input` and `Command` existed and were absorbed into `Enter` — see M4.5. Their
+  spoken phrases still resolve, so configs and habits written before the merge
+  keep working. Do not reintroduce them without a reason M4.5 does not already
+  answer.
+- Portuguese is the primary language; `pt` and `en` vocabularies ship embedded.
+- `[asr] languages` restricts what detection may settle on. Without it whisper
+  named German at p = 0.198 on a Portuguese sentence and returned German text.
 
 ## Out of scope unless requested
 

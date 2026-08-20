@@ -25,24 +25,41 @@ open.
 
 ## Modes
 
+Two, and they differ by the only thing that matters: whose voice is being
+listened to.
+
 | Mode | What it does |
 |---|---|
-| **Enter** | Buffers dictation; "câmbio" sends it to the focused window, "envia para <alvo>" sends it to a named window |
-| **Input** | Types as you speak, straight into the focused window |
-| **Command** | Everything is a WM command; nothing is ever typed |
-| **Translate** | Transcribes the *system audio* (a call, a video) instead of the microphone |
+| **Microphone** | Your speech accumulates as text until a send word; a short utterance the window grammar recognises navigates instead of being written down |
+| **System audio** | A call or a video, subtitled — and translated for display when a model is installed. The microphone stays on, so a recording holds both sides |
+
+There were four. `Input` typed each utterance where `Enter` accumulated them —
+same source, same grammar, one word apart — and `Command` dispatched window
+commands where `Enter` already does. Leaving a half-composed message to switch
+modes and switch back is friction the word-count gate makes unnecessary: a
+command is a handful of words, a dictated line is not, and the grammar refuses
+anything that is not literally in it. See M4.5 in `BACKLOG.md`.
+
+Spoken phrases from before the merge (`modo comando`, `modo ditado`) still
+resolve, to the mode that absorbed them.
 
 ## Voice commands (Portuguese defaults)
 
 | Say | Effect |
 |---|---|
-| "câmbio" / "envia" / "manda" / "pronto" | send the buffered text |
-| "cancela" / "limpa" / "descarta" | discard the buffer |
+| "câmbio" / "envia" / "enviar" / "manda" / "pronto" / "pode enviar" | send the buffered text |
+| "cancela" / "limpar" / "descarta" / "apaga" / "esquece" | discard the buffer |
+| "ajuda" / "comandos" | list what can be said, built from the live vocabulary |
+| "modo microfone" / "modo reunião" | switch mode without touching the overlay |
+| "grava" / "encerra" | open and close a recorded session |
 | "nova linha" / "pula linha" | line break |
 | "envia para \<alvo\>" | send buffer to a window ("navegador", "terminal", "teams"…) |
 | "monitor \[da\] direita / esquerda / \[do\] meio / centro" | focus monitor by physical position |
 | "monitor \<marca\>" | focus monitor by brand ("monitor samsung") |
 | "janela da esquerda / de cima …" | move window focus |
+| "workspace 3" / "área 3" / "vai pra 3" | switch workspace |
+| "vai pro \<alvo\>" / "abre o \<alvo\>" / "mostra o \<alvo\>" | focus a window, or a browser tab when no window answers |
+| "trocar tela" / "próxima janela" | cycle windows in the workspace |
 | "área de trabalho \<n\>" | switch workspace ("quatro" or "4") |
 | "leva pra \<n\>" | move window to workspace |
 | "foca o \<alvo\>" | focus a window by name |
@@ -80,6 +97,52 @@ navegador = ["firefox", "brave", "chromium"]
 Set `require_prefix = true` in a language section to only accept commands
 that start with the prefix word ("computador, câmbio").
 
+`fillers` is the list of discourse words stripped before the word-count gate
+counts. It exists because people do not speak in isolated keywords — they say
+"ok, câmbio" and "limpar tudo", and the gate refused both before scoring
+anything. Only words the vocabulary names are removed, which is why "vamos
+limpar depois" stays dictation.
+
+### Which languages you actually speak
+
+```toml
+[asr]
+languages = ["pt", "en"]   # empty accepts anything
+```
+
+Whisper will name any of its hundred languages on thin evidence, and three
+seconds of speech is thin evidence: a Portuguese sentence came back as German
+at p = 0.198, in German. A detection outside this list is treated as noise
+rather than disagreement — ignored outright, which also lets a real run settle
+sooner, because a stray reading no longer resets the streak.
+
+### Browser tabs
+
+A whole browser is one window to the compositor, so anything kept in a tab is
+invisible to `hyprctl clients` — which is how most people keep most things.
+Chromium exposes its tabs over the DevTools endpoint:
+
+```toml
+[browser]
+debug_port = 9222   # launch the browser with --remote-debugging-port=9222
+```
+
+Off by default: nobody should have a debugging port opened on their behalf. A
+closed port is the normal case, not a failure — the target simply falls back
+to the window list. Windows are always tried first, because a real window is a
+stronger answer than a page inside one.
+
+### Where the overlay sits
+
+```toml
+[overlay]
+monitor = "middle"   # or left, right, focused, or a connector name like DP-1
+```
+
+Monitors are ordered by their global x, left to right — not by the order
+hyprctl reports them, which is connector order and put the overlay on the
+laptop panel regardless of where it sat on the desk.
+
 ### Segmentation
 
 How long an utterance runs before it is finalized. Following someone else
@@ -93,7 +156,7 @@ hang_ms = 960              # silence before the utterance is considered done
 max_seconds = 20           # hard cap when no pause ever comes
 partial_every_ms = 900
 
-[segmentation.subtitle]    # a meeting, a video — Translate mode
+[segmentation.subtitle]    # a meeting, a video — System audio mode
 hang_ms = 320
 max_seconds = 8
 partial_every_ms = 700
@@ -191,14 +254,23 @@ never fights the rule.
 
 ## Diagnostics
 
-Four subcommands answer "why is it doing that?" without starting the pipeline:
+Subcommands that answer "why is it doing that?" without starting the pipeline:
 
 ```bash
-just devices    # which microphone capture would use, and the alternatives
-just levels     # live meter of the signal whisper receives — speak and watch
-just probe      # type utterances, see the matcher's decision chain with scores
-just asr-test   # read the reference passage aloud, get word error rate per block
+just devices        # which microphone capture would use, and the alternatives
+just levels         # live meter of the signal whisper receives — speak and watch
+just probe          # type utterances, see the matcher's decision chain with scores
+just asr-test       # read the reference passage aloud, get word error rate per block
+just voices         # does the speaker model load here, and what does it declare
+just ocr <alvo>     # what OCR reads off a window, with the geometry of each line
+just ocr-changes    # rank a window's lines by how much they move
 ```
+
+`just probe` is the one to reach for when a command does not fire. It shows
+every class the classifier consults with its score, and whether the utterance
+would navigate or become text. Three bugs in one week were diagnosed with it in
+under a minute each, and one of them existed only because the probe was not
+listing every class — an instrument that hides a class hides the bug in it.
 
 `just levels` is the first thing to run when transcription is poor: speech
 should sit around **-25 to -15 dBFS RMS**. A quiet room reads near -60. If
@@ -213,7 +285,15 @@ usable; above 25% the problem is signal or model, not tuning.
 
 ## What does NOT work
 
-- Compositors other than Hyprland (window routing and dispatch are hyprctl)
+- Compositors other than Hyprland (window routing and dispatch are hyprctl).
+  Text injection is the exception: it probes for `wtype`, then `xdotool`, so
+  dictation works on X11. Two of the three wlroots dependencies — injection
+  and screen capture — have a standard `xdg-desktop-portal` path that is not
+  used here; listing windows has no portal at all, and that one is a real
+  Wayland gap rather than a shortcut.
+- macOS. See `README-MAC.md` for the map. Nothing is impossible there and
+  several parts would be better, but it is a second platform backend, not a
+  build flag.
 - Voice **commands** in Japanese/Chinese — transcription and dictation work,
   but the command matcher assumes space-separated alphabetic script
 - Only NVIDIA/CUDA has been tested for GPU inference

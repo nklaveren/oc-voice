@@ -62,6 +62,12 @@ probe:
 probe-en:
     cargo run --release -- probe en
 
+# Answers this before anything is built on top of the model: a second
+# onnxruntime consumer in one process is what broke the VAD in af4da28.
+# Does the speaker-embedding model load here, and what does it declare?
+voices:
+    cargo run --release -- voices
+
 # What OCR reads off a window, with the geometry to grab each line on its own
 ocr alvo="teams":
     cargo run --release -- ocr {{ alvo }}
@@ -70,9 +76,10 @@ ocr alvo="teams":
 ocr-watch region:
     cargo run --release -- ocr watch "{{ region }}"
 
-# Watch a whole window and rank its lines by how much they move. In a running
-# meeting the active speaker's name is the thing that changes; everything else
-# sits still. Finds the region so nobody has to eyeball a 72-line dump.
+# In a running meeting the active speaker's name is the thing that changes
+# while the toolbar and the participant list sit still, so the region can
+# announce itself instead of someone eyeballing a 72-line dump.
+# Rank a window's lines by how much they actually move
 ocr-changes alvo="teams" segundos="60":
     cargo run --release -- ocr changes {{ alvo }} {{ segundos }}
 
@@ -203,9 +210,9 @@ refs:
     fi
     echo "refs ok: every file:line in the docs still names its symbol"
 
-# Re-record the dispatch snapshot after an INTENTIONAL binding change.
 # Read the diff the failing test printed before running this — the snapshot
 # exists to make a silent change loud, and blindly re-recording turns it off.
+# Re-record the dispatch snapshot after an INTENTIONAL binding change
 snapshot:
     UPDATE_SNAPSHOT=1 cargo test the_whole_vocabulary
 
