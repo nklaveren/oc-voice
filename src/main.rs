@@ -9,13 +9,13 @@
 //! Usage: oc-voice-poc <path-to-ggml-model.bin>
 
 use anyhow::{anyhow, Context, Result};
-mod llm_classifier;
+mod commands;
 
+use commands::{classify, VoiceCommand};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
 use crossbeam_channel::{Receiver, Sender};
 use eframe::egui;
-use llm_classifier::{LlmClassifier, VoiceCommand};
 use ringbuf::{traits::*, HeapRb};
 use rubato::{
     Resampler as RubatoResampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
@@ -279,17 +279,15 @@ fn run_audio_pipeline(
                         TranscribeMode::Input => {
                             type_text(trimmed);
                         }
-                        TranscribeMode::Enter => {
-                            match LlmClassifier::classify_with_fallback(trimmed) {
-                                Some(VoiceCommand::Dictation) | None => {
-                                    enter_buffer.push(trimmed.to_string());
-                                    emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
-                                }
-                                Some(cmd) => {
-                                    execute_command(&cmd, &mut enter_buffer, &tx);
-                                }
+                        TranscribeMode::Enter => match classify(trimmed) {
+                            Some(VoiceCommand::Dictation) | None => {
+                                enter_buffer.push(trimmed.to_string());
+                                emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
                             }
-                        }
+                            Some(cmd) => {
+                                execute_command(&cmd, &mut enter_buffer, &tx);
+                            }
+                        },
                         TranscribeMode::Translate => {}
                     }
                     debug!(infer_ms, samples = segment.samples.len(), "final emitted");
@@ -309,17 +307,15 @@ fn run_audio_pipeline(
                         TranscribeMode::Input => {
                             type_text(trimmed);
                         }
-                        TranscribeMode::Enter => {
-                            match LlmClassifier::classify_with_fallback(trimmed) {
-                                Some(VoiceCommand::Dictation) | None => {
-                                    enter_buffer.push(trimmed.to_string());
-                                    emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
-                                }
-                                Some(cmd) => {
-                                    execute_command(&cmd, &mut enter_buffer, &tx);
-                                }
+                        TranscribeMode::Enter => match classify(trimmed) {
+                            Some(VoiceCommand::Dictation) | None => {
+                                enter_buffer.push(trimmed.to_string());
+                                emit(&tx, TranscriptEvent::Buffered(enter_buffer.len()));
                             }
-                        }
+                            Some(cmd) => {
+                                execute_command(&cmd, &mut enter_buffer, &tx);
+                            }
+                        },
                         TranscribeMode::Translate => {}
                     }
                 }

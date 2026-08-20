@@ -34,7 +34,6 @@
             just
             curl
             whisper-cpp
-            llama-cpp
             pipewire
           ];
           buildInputs = with pkgs; [
