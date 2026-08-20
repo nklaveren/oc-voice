@@ -78,6 +78,20 @@ pub fn run_audio_pipeline(
     while running.load(Ordering::SeqCst) {
         let mode = lock_settings(&settings).mode;
 
+        // The button, checked every tick rather than on the next utterance:
+        // stopping a recording must work in a silent room, which is exactly
+        // the situation the spoken command cannot reach.
+        if let Some(request) = lock_settings(&settings).session_request.take() {
+            match request {
+                crate::SessionRequest::Start => {
+                    start_session(primary_source(mode), &mut recording, &tx);
+                }
+                crate::SessionRequest::Stop => {
+                    stop_session(&mut recording, &tx);
+                }
+            }
+        }
+
         if last_mode != Some(mode) || streams.is_empty() {
             streams.clear(); // Drop stops each capture thread.
             for (source, translate) in streams_for(mode) {
@@ -128,18 +142,7 @@ pub fn run_audio_pipeline(
     // Closing the window is a normal way to end a meeting, and it used to
     // discard the whole recording. Every utterance is already on disk by now;
     // this final write only refreshes the duration in the header.
-    if let Some(s) = recording.take() {
-        match s.write(&crate::session::default_dir()) {
-            Ok(path) => {
-                info!(path = %path.display(), lines = s.line_count(), "session closed on shutdown");
-                emit(
-                    &tx,
-                    TranscriptEvent::SessionStopped(path.display().to_string(), s.line_count()),
-                );
-            }
-            Err(e) => error!(error = ?e, "failed to write session on shutdown"),
-        }
-    }
+    stop_session(&mut recording, &tx);
     Ok(())
 }
 
@@ -270,40 +273,70 @@ fn handle_final(source: Source, trimmed: &str, mode: TranscribeMode, ctx: &mut C
     );
 }
 
+/// Whose voice a mode is mainly there to capture, used to attribute a session
+/// started from the button rather than by someone speaking.
+fn primary_source(mode: TranscribeMode) -> Source {
+    match mode {
+        TranscribeMode::Translate => Source::System,
+        _ => Source::Mic,
+    }
+}
+
+/// Open a recording. No-op if one is already open.
+///
+/// The single place a session is created, so the spoken command and the
+/// overlay's button cannot drift into behaving differently.
+fn start_session(
+    source: Source,
+    recording: &mut Option<crate::session::Session>,
+    tx: &Sender<TranscriptEvent>,
+) -> bool {
+    if recording.is_some() {
+        return false;
+    }
+    let session = crate::session::Session::start(source.label());
+    // Create the file now, empty. The overlay's button needs somewhere to
+    // point before the first sentence is finished, and a file that exists and
+    // grows is easier to trust than one that appears at the end.
+    let path = match session.write(&crate::session::default_dir()) {
+        Ok(p) => p.display().to_string(),
+        Err(e) => {
+            error!(error = ?e, "failed to create session file");
+            String::new()
+        }
+    };
+    *recording = Some(session);
+    emit(tx, TranscriptEvent::SessionStarted(path));
+    true
+}
+
+/// Close a recording. No-op if none is open.
+fn stop_session(
+    recording: &mut Option<crate::session::Session>,
+    tx: &Sender<TranscriptEvent>,
+) -> bool {
+    let Some(s) = recording.take() else {
+        return false;
+    };
+    match s.write(&crate::session::default_dir()) {
+        Ok(path) => {
+            info!(path = %path.display(), lines = s.line_count(), "session closed");
+            emit(
+                tx,
+                TranscriptEvent::SessionStopped(path.display().to_string(), s.line_count()),
+            );
+        }
+        Err(e) => error!(error = ?e, "failed to write session"),
+    }
+    true
+}
+
 /// Returns true when the utterance was a session command and is fully handled.
 fn session_control(source: Source, trimmed: &str, ctx: &mut Ctx<'_>) -> bool {
     let vocab = config::active_vocab(ctx.config, ctx.settings);
     match vocab.and_then(|v| commands::classify(trimmed, v, ctx.config.threshold())) {
-        Some(commands::VoiceCommand::SessionStart) if ctx.recording.is_none() => {
-            let session = crate::session::Session::start(source.label());
-            // Create the file now, empty. The overlay's button needs somewhere
-            // to point before the first sentence is finished, and an empty
-            // file that grows is easier to trust than one that appears later.
-            let path = match session.write(&crate::session::default_dir()) {
-                Ok(p) => p.display().to_string(),
-                Err(e) => {
-                    error!(error = ?e, "failed to create session file");
-                    String::new()
-                }
-            };
-            *ctx.recording = Some(session);
-            emit(ctx.tx, TranscriptEvent::SessionStarted(path));
-            true
-        }
-        Some(commands::VoiceCommand::SessionStop) => match ctx.recording.take() {
-            Some(s) => {
-                let dir = crate::session::default_dir();
-                match s.write(&dir) {
-                    Ok(path) => emit(
-                        ctx.tx,
-                        TranscriptEvent::SessionStopped(path.display().to_string(), s.line_count()),
-                    ),
-                    Err(e) => error!(error = ?e, "failed to write session"),
-                }
-                true
-            }
-            None => false,
-        },
+        Some(commands::VoiceCommand::SessionStart) => start_session(source, ctx.recording, ctx.tx),
+        Some(commands::VoiceCommand::SessionStop) => stop_session(ctx.recording, ctx.tx),
         _ => false,
     }
 }

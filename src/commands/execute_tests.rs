@@ -14,6 +14,7 @@ fn command_mode_never_types() {
         language: "pt".to_string(),
         mode: crate::TranscribeMode::Command,
         detected_language: None,
+        session_request: None,
     });
     let (tx, _rx) = crossbeam_channel::unbounded();
     let mut buffer = Vec::new();
@@ -107,6 +108,7 @@ fn unmatched_target_waits_for_confirmation() {
         language: "pt".to_string(),
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
+        session_request: None,
     });
     route_final(
         crate::TranscribeMode::Enter,
@@ -134,6 +136,7 @@ fn fecha_then_confirma_kills_the_window() {
         language: "pt".to_string(),
         mode: crate::TranscribeMode::Command,
         detected_language: None,
+        session_request: None,
     });
     let (tx, _rx) = crossbeam_channel::unbounded();
     let mut buffer = Vec::new();
@@ -179,6 +182,7 @@ fn deny_discards_the_pending_action() {
         language: "pt".to_string(),
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
+        session_request: None,
     });
     route_final(
         crate::TranscribeMode::Enter,

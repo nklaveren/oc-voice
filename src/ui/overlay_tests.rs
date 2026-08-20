@@ -11,6 +11,7 @@ fn app_with_channel() -> (OverlayApp, crossbeam_channel::Sender<TranscriptEvent>
         language: "pt".to_string(),
         mode: TranscribeMode::Enter,
         detected_language: None,
+        session_request: None,
     }));
     let config = Arc::new(crate::config::Config::embedded());
     let runner: Arc<dyn CommandRunner> = Arc::new(crate::process::FakeRunner::new(b"[]".to_vec()));

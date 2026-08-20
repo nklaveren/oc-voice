@@ -237,6 +237,7 @@ pub fn run(model_path: &str) -> Result<()> {
         language: "pt".to_string(),
         mode: TranscribeMode::Input,
         detected_language: None,
+        session_request: None,
     }));
 
     println!(

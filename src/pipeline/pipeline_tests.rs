@@ -49,6 +49,49 @@ fn only_the_microphone_may_act_on_what_it_hears() {
 }
 
 #[test]
+fn the_button_and_the_spoken_command_open_the_same_session() {
+    // Two entry points, one implementation. The button exists because during
+    // a call the spoken form fails in both directions: saying the stop word
+    // out loud announces you were recording, and a silent room carries no
+    // utterance for the command to ride on.
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let mut recording = None;
+
+    assert!(start_session(Source::Mic, &mut recording, &tx));
+    assert!(recording.is_some());
+    // Starting twice must not replace a running session with an empty one.
+    assert!(!start_session(Source::Mic, &mut recording, &tx));
+
+    assert!(stop_session(&mut recording, &tx));
+    assert!(recording.is_none());
+    // And stopping when nothing is recording does nothing at all.
+    assert!(!stop_session(&mut recording, &tx));
+
+    let events: Vec<_> = rx.try_iter().collect();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, TranscriptEvent::SessionStarted(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, TranscriptEvent::SessionStopped(_, _)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_session_started_by_the_button_is_attributed_to_the_modes_own_voice() {
+    assert_eq!(primary_source(TranscribeMode::Translate), Source::System);
+    assert_eq!(primary_source(TranscribeMode::Enter), Source::Mic);
+    assert_eq!(primary_source(TranscribeMode::Command), Source::Mic);
+}
+
+#[test]
 fn the_two_streams_do_not_share_a_language_lock() {
     // The failure this prevents: an English meeting pins `en`, and the next
     // Portuguese utterance from the mic is handed to whisper as English.

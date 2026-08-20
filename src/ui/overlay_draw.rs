@@ -146,6 +146,30 @@ impl OverlayApp {
                         self.show_settings = !self.show_settings;
                     }
 
+                    // Starting and stopping were spoken-only, which fails in
+                    // both directions during a call: saying the stop word out
+                    // loud announces that you were recording, and in a silent
+                    // room there is no utterance to carry the command at all.
+                    let recording = self.recording.is_some();
+                    // No glyph: ● and ■ live in the same block as the ◯ that
+                    // already rendered as an empty box. Colour carries it.
+                    let label = if recording {
+                        egui::RichText::new("Parar")
+                            .color(egui::Color32::from_rgb(255, 90, 90))
+                            .strong()
+                    } else {
+                        egui::RichText::new("Gravar")
+                    };
+                    if ui.button(label).clicked() {
+                        let request = if recording {
+                            crate::SessionRequest::Stop
+                        } else {
+                            crate::SessionRequest::Start
+                        };
+                        // The pipeline thread owns the session; this only asks.
+                        crate::lock_settings(&self.settings).session_request = Some(request);
+                    }
+
                     // Opening the record is only useful because the file is
                     // written as the session runs; before that there was
                     // nothing on disk to open until someone said the stop word.

@@ -156,12 +156,28 @@ impl TranscribeMode {
     }
 }
 
+/// Start or stop a recording from outside the audio path.
+///
+/// The spoken commands only fire when someone speaks. In a meeting that is
+/// the wrong requirement in both directions: saying "para de gravar" out loud
+/// announces to everyone that you were recording, and if nobody is talking
+/// there is no utterance to carry the command at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionRequest {
+    Start,
+    Stop,
+}
+
 pub struct AppSettings {
     pub language: String,
     pub mode: TranscribeMode,
     /// Last language whisper detected while `language` is "auto"; picks the
     /// command vocabulary section (M1.3).
     pub detected_language: Option<String>,
+    /// Set by the overlay's record button, consumed by the pipeline on its
+    /// next tick. A request rather than a state, because the session itself
+    /// lives in the pipeline thread and only it may open or close one.
+    pub session_request: Option<SessionRequest>,
 }
 
 /// Lock shared settings, recovering from mutex poisoning. A poisoned lock
@@ -215,6 +231,7 @@ fn main() -> Result<()> {
         language: "pt".to_string(),
         mode: TranscribeMode::Enter,
         detected_language: None,
+        session_request: None,
     }));
 
     let vocab_config = Arc::new(config::Config::load());
