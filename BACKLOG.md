@@ -194,7 +194,7 @@ Os templates moram no `commands.toml` junto do resto do vocabulário, porque a o
 
 **Aceite:** teste cobrindo cada uma das 17 entradas acima em `match_exact`, mais as 3 frases da tabela de templates resolvendo em `match_template`. `cargo test` verde.
 
-### M1.2 — Trocar as três comparações pelo matcher ✅ `04fc86d`
+### M1.2 — Trocar as três comparações pelo matcher ✅ `57cacc2`
 
 Reescrever `classify` (`src/commands/mod.rs:32`) usando o matcher, remover a guarda `words.len() > 5`, e passar o filtro de alucinação pelo mesmo caminho.
 
