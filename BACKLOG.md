@@ -66,6 +66,50 @@ Junto vai um requisito que M3.1 depende: todo processo externo (`hyprctl`, `wtyp
 
 **Aceite:** `just limits` passa — é o gate que verifica o teto de 400 linhas por arquivo, e ele já está vermelho hoje por causa do `main.rs`. `just check` verde (roda `limits`, `check`, `clippy`, `fmt` e `test`). Zero mudança de comportamento — o binário roda igual.
 
+### M0.4 — Gates de conformidade
+
+O teto de 400 linhas virou `just limits` porque critério escrito em prosa ninguém roda. Dois outros critérios deste backlog estão na mesma situação.
+
+**`just vocab` — vocabulário fora do código.** Três itens exigem que nenhuma palavra falada nem nome de aplicativo apareça em `src/` (M1.3, M2.1, M3.1), e o `AGENTS.md` repete como diretriz. Hoje há **28 ocorrências**:
+
+```
+commands.rs:37   "envia" "manda" "cambio" "pronto"
+commands.rs:38   "cancela" "limpa"
+commands.rs:102  "navegador" "firefox"
+commands.rs:104  "oc-opencode"
+commands.rs:105  "terminal" "Alacritty"
+commands.rs:106  "editor" "vscode" "code"
+```
+
+O gate procura literais de string em `src/` contra duas listas — palavras de comando em português e nomes de aplicativo conhecidos — e reprova se achar. Nasce **vermelho** e só fica verde quando M1.3 e M2.1 moverem tudo para o `commands.toml`, igual ao `just limits`. Depois disso, impede que alguém acrescente "só um alias rapidinho" no código.
+
+Exceção legítima: `commands.rs` pode conter o TOML default embutido via `include_str!`, que é configuração, não código. O gate ignora arquivos `.toml`.
+
+**`just refs` — referência morta na documentação.** O `BACKLOG.md` cita 6 posições `arquivo:linha`. Todas envelheceram no M0.1: uma vez quando `llm_classifier.rs` virou `commands.rs`, outra quando o `main.rs` deslocou 4 linhas. Foram corrigidas à mão nas duas vezes.
+
+É o modo de falha crônico deste repo — o `README` e o `AGENTS.md` ficaram mentindo por meses, e o backlog conseguiu ficar obsoleto dentro de um único commit. O gate extrai cada `arquivo:linha` dos documentos, confere se o arquivo existe e se a linha ainda contém o símbolo que o texto afirma, e reprova na divergência. Deve passar hoje.
+
+**Aceite:** `just refs` verde. `just vocab` vermelho hoje, listando as 28 ocorrências, e verde depois de M2.1. Ambos entram no `just check`.
+
+### M0.5 — Pânico silencioso na thread de áudio
+
+O pipeline roda em thread separada e trata `Err`, mas não trata pânico:
+
+```rust
+let pipeline_handle = std::thread::spawn(move || {
+    if let Err(e) = run_audio_pipeline(...) { error!(...); }
+});
+```
+
+Há 8 `unwrap()` no `main.rs`, 3 deles no caminho de áudio. Se um estourar, a thread morre, o `if let Err` nunca executa, e o `join()` no fim descarta o pânico com `let _`. **O overlay continua de pé, com aparência normal, sem transcrever nada** — a pessoa fica falando com uma janela morta sem entender por quê.
+
+Duas partes:
+
+1. Detectar a thread morta — `is_finished()` no loop da UI, ou um canal que fecha — e mostrar no overlay que o pipeline caiu, em vez de aparentar normalidade.
+2. Trocar os `unwrap()` do caminho de áudio por erro tratado. `settings.lock().unwrap()` em mutex envenenado é o caso mais provável.
+
+**Aceite:** com um pânico injetado em `run_audio_pipeline`, o overlay mostra estado de falha em vez de silêncio. `clippy::unwrap_used` negado nos módulos do caminho de áudio.
+
 ### M0.3 — Renomear o binário
 
 `oc-voice-poc` não é mais um POC, e o nome vai aparecer para todo mundo que instalar. Trocar para `oc-voice` em [`Cargo.toml`](Cargo.toml) e nas receitas do [`justfile`](justfile).
@@ -414,7 +458,7 @@ Documentar `just run-cpu` e medir a latência real de `large-v3-turbo` em CPU �
 
 ## Ordem de execução
 
-M0 primeiro — mexer em código morto depois de construir por cima dele custa o dobro. Depois M1, que é o alicerce de tudo que vem: M2, M3 e M4 dependem todos do matcher. M2 antes de M3 porque a resolução de alvo é reusada pelo `focuswindow`. M4 pode ir em paralelo com M3, com uma exceção: M4.3 é a política de confirmação que M2.3 e M3.3 consomem, então precisa existir antes de qualquer um dos dois ser fechado. M5 fecha.
+M0 primeiro — mexer em código morto depois de construir por cima dele custa o dobro. Os gates de M0.4 entram cedo mesmo nascendo vermelhos: o `just vocab` vermelho é o que garante que M1.3 e M2.1 não sejam dados por prontos pela metade. Depois M1, que é o alicerce de tudo que vem: M2, M3 e M4 dependem todos do matcher. M2 antes de M3 porque a resolução de alvo é reusada pelo `focuswindow`. M4 pode ir em paralelo com M3, com uma exceção: M4.3 é a política de confirmação que M2.3 e M3.3 consomem, então precisa existir antes de qualquer um dos dois ser fechado. M5 fecha.
 
 O caminho mais curto até algo demonstrável é **M0.1 → M1.1 → M1.2 → M2.1**: remove o LLM, coloca similaridade no lugar e faz o alvo de janela funcionar de verdade. Isso já destrava o modo `Enter` que existe hoje e conserta os 5 aliases quebrados.
 
