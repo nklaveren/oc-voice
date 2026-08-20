@@ -70,14 +70,37 @@ pub struct LanguageLock {
     candidate: Option<String>,
     streak: usize,
     locked: Option<String>,
+    /// Languages the speaker actually speaks. Empty means anything goes.
+    allowed: Vec<String>,
 }
 
 impl LanguageLock {
     /// How many agreeing detections it takes to pin, or disagreeing to drop.
     const AGREEMENT: usize = 3;
 
+    /// Restrict detection to the languages someone actually speaks.
+    ///
+    /// From a live log: a Portuguese sentence was detected as German at
+    /// p = 0.198 and came back as "Weil Brot sagt…". Whisper will name any of
+    /// its hundred languages on thin evidence, and a three-second utterance
+    /// is thin evidence. Naming the two or three you use turns that from a
+    /// plausible answer into an impossible one.
+    pub fn restricted_to(allowed: Vec<String>) -> Self {
+        LanguageLock {
+            allowed,
+            ..Default::default()
+        }
+    }
+
     /// Returns the language to lock, the first time a run reaches AGREEMENT.
     pub fn observe(&mut self, code: &str) -> Option<&str> {
+        // A language nobody here speaks is not a disagreement, it is noise:
+        // ignoring it outright also lets a real run reach agreement sooner,
+        // because a stray reading no longer resets the streak.
+        if !self.allowed.is_empty() && !self.allowed.iter().any(|a| a == code) {
+            debug!(code, "detection outside the configured languages, ignored");
+            return None;
+        }
         if self.candidate.as_deref() == Some(code) {
             self.streak += 1;
         } else {

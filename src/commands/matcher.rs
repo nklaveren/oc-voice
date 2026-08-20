@@ -107,16 +107,67 @@ pub(crate) fn match_template(
         .split_whitespace()
         .map(str::to_string)
         .collect();
+    // Two passes, and the order is the whole correctness of the feature.
+    //
+    // A trailing open slot absorbing the tail makes short patterns greedy:
+    // "área {numero}" swallowed "de trabalho 3" and won on score before
+    // "área de trabalho {numero}" was ever tried, so a workspace command that
+    // had worked for weeks started resolving a number called "de trabalho 3".
+    //
+    // Exact-length matches are therefore settled first, across every
+    // template. Absorption is what happens when nothing fits — never
+    // something that competes with something that does.
+    for allow_absorb in [false, true] {
+        if let Some(m) = match_pass(&spoken_words, templates, threshold, allow_absorb) {
+            return Some(m);
+        }
+    }
+    None
+}
+
+fn match_pass(
+    spoken_words: &[String],
+    templates: &[Template],
+    threshold: f64,
+    allow_absorb: bool,
+) -> Option<TemplateMatch> {
     let mut best: Option<TemplateMatch> = None;
     for (index, template) in templates.iter().enumerate() {
         let pattern_words: Vec<&str> = template.pattern.split_whitespace().collect();
-        if pattern_words.len() != spoken_words.len() {
+        // A trailing open slot absorbs everything left, because the things
+        // people name are not one word: "vs code", "open code", "visual
+        // studio code". Only trailing, and only open — a closed slot like
+        // {direcao} still takes exactly one word, or "monitor da direita
+        // agora" would resolve a direction called "direita agora".
+        //
+        // Widening this is only safe because the resolver behind it refuses
+        // what it cannot find: an absorbed phrase that names no window
+        // dispatches nothing and the utterance falls through to dictation.
+        let trailing_open_slot = allow_absorb
+            && pattern_words
+                .last()
+                .and_then(|w| w.strip_prefix('{').and_then(|w| w.strip_suffix('}')))
+                .and_then(|slot| template.slots.get(slot))
+                .is_some_and(|options| options.is_empty());
+        if pattern_words.len() != spoken_words.len()
+            && !(trailing_open_slot && spoken_words.len() > pattern_words.len())
+        {
             continue;
         }
         let mut slots = HashMap::new();
         let mut score = 1.0_f64;
         let mut matched = true;
-        for (pattern_word, spoken_word) in pattern_words.iter().zip(&spoken_words) {
+        let last = pattern_words.len() - 1;
+        for (i, pattern_word) in pattern_words.iter().enumerate() {
+            // The trailing open slot swallows the tail; every other position
+            // pairs one to one.
+            let absorbed;
+            let spoken_word: &String = if i == last && trailing_open_slot {
+                absorbed = spoken_words[i..].join(" ");
+                &absorbed
+            } else {
+                &spoken_words[i]
+            };
             let word_score = match pattern_word
                 .strip_prefix('{')
                 .and_then(|w| w.strip_suffix('}'))

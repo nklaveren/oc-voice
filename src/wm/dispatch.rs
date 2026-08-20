@@ -130,7 +130,7 @@ pub fn dispatch_spoken(
     // Whole-utterance commands first.
     let words: Vec<&str> = vocab.wm_commands.keys().map(String::as_str).collect();
     if let Some((word, _)) = matcher::match_exact(spoken, &words, threshold) {
-        execute_action(
+        return execute_action(
             &vocab.wm_commands[word].clone(),
             None,
             vocab,
@@ -139,7 +139,6 @@ pub fn dispatch_spoken(
             tx,
             pending,
         );
-        return true;
     }
 
     // Slotted templates. Slot options: direcao is closed (validated during
@@ -163,7 +162,7 @@ pub fn dispatch_spoken(
     if let Some(m) = matcher::match_template(spoken, &templates, threshold) {
         let def = &vocab.templates[m.template_index];
         let slot_value = m.slots.values().next().cloned();
-        execute_action(
+        return execute_action(
             &def.action.clone(),
             slot_value.as_deref(),
             vocab,
@@ -172,7 +171,6 @@ pub fn dispatch_spoken(
             tx,
             pending,
         );
-        return true;
     }
 
     debug!(spoken, "no WM command recognized");
@@ -180,6 +178,13 @@ pub fn dispatch_spoken(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Returns whether anything actually happened.
+///
+/// It used to return nothing, and `dispatch_spoken` reported success on any
+/// pattern match — even when the slot resolved to no window at all. Harmless
+/// while Command mode dropped unrecognised speech; not harmless now that
+/// Enter mode falls through to dictation, where a swallowed "true" means the
+/// sentence is silently discarded instead of typed.
 fn execute_action(
     action: &str,
     slot: Option<&str>,
@@ -188,7 +193,7 @@ fn execute_action(
     runner: &Arc<dyn CommandRunner>,
     tx: &Sender<TranscriptEvent>,
     pending: &mut Option<PendingAction>,
-) {
+) -> bool {
     // M3.3/M4.3: destructive actions never fire directly.
     if config.is_destructive(action) {
         emit(
@@ -203,13 +208,15 @@ fn execute_action(
                 .collect(),
             label: action.to_string(),
         });
-        return;
+        return true;
     }
     if let Some(args) = dispatch_args(action, slot, vocab, config, runner) {
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         run_dispatch(runner, tx, &refs);
+        true
     } else {
         debug!(action, ?slot, "slot did not resolve; nothing dispatched");
+        false
     }
 }
 

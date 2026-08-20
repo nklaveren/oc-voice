@@ -13,6 +13,10 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use tracing::{info, warn};
 
+#[path = "schema.rs"]
+mod schema;
+use schema::RawConfig;
+
 const EMBEDDED: &str = include_str!("default.toml");
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -108,83 +112,6 @@ impl Default for Segmentation {
     }
 }
 
-/// A user's partial override of one profile.
-///
-/// Every field is optional on purpose. Deserializing straight into
-/// `Segmentation` would let `hang_ms = 400` under `[segmentation.subtitle]`
-/// silently reset `max_seconds` to the generic default of 20 — reintroducing
-/// the wall-of-text bug the subtitle profile exists to prevent. A patch only
-/// changes what it names.
-#[derive(Debug, Clone, Deserialize, Default)]
-struct SegmentationPatch {
-    hang_ms: Option<u64>,
-    max_seconds: Option<u64>,
-    partial_every_ms: Option<u64>,
-    preroll_ms: Option<u64>,
-}
-
-impl SegmentationPatch {
-    fn apply_to(&self, base: &mut Segmentation) {
-        if let Some(v) = self.hang_ms {
-            base.hang_ms = v;
-        }
-        if let Some(v) = self.max_seconds {
-            base.max_seconds = v;
-        }
-        if let Some(v) = self.partial_every_ms {
-            base.partial_every_ms = v;
-        }
-        if let Some(v) = self.preroll_ms {
-            base.preroll_ms = v;
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct SegmentationSetPatch {
-    #[serde(default)]
-    dictation: SegmentationPatch,
-    #[serde(default)]
-    subtitle: SegmentationPatch,
-}
-
-impl SegmentationSetPatch {
-    fn apply_to(&self, base: &mut SegmentationSet) {
-        self.dictation.apply_to(&mut base.dictation);
-        self.subtitle.apply_to(&mut base.subtitle);
-    }
-}
-
-/// Chromium's DevTools endpoint, for reaching browser tabs.
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct BrowserCfg {
-    /// Port the browser was launched with via `--remote-debugging-port`.
-    /// Absent means the feature is off, which is the default: nobody should
-    /// have a debugging port opened on their behalf.
-    pub debug_port: Option<u16>,
-}
-
-/// Where the floating overlay lands.
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct OverlayCfg {
-    /// `middle`, `left`, `right`, `focused`, or a monitor name like `DP-1`.
-    pub monitor: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct RawConfig {
-    #[serde(default)]
-    matching: Matching,
-    #[serde(default)]
-    segmentation: SegmentationSetPatch,
-    #[serde(default)]
-    overlay: OverlayCfg,
-    #[serde(default)]
-    browser: BrowserCfg,
-    #[serde(flatten)]
-    languages: HashMap<String, LangVocab>,
-}
-
 /// One profile per use. Meeting subtitles and dictation want opposite
 /// behaviour, so they get separate numbers instead of one compromise.
 #[derive(Debug, Clone, Deserialize)]
@@ -227,6 +154,10 @@ pub struct Config {
     segmentation: SegmentationSet,
     overlay_monitor: String,
     browser_port: Option<u16>,
+    /// Not the vocabulary sections below — the languages *detection* may
+    /// settle on. Named apart because they are different things that were
+    /// briefly the same field.
+    spoken_languages: Vec<String>,
     confirm_below: f64,
     destructive: Vec<String>,
     languages: HashMap<String, LangVocab>,
@@ -273,6 +204,9 @@ impl Config {
                 if let Some(p) = user.browser.debug_port {
                     base.browser_port = Some(p);
                 }
+                if let Some(l) = user.asr.languages {
+                    base.spoken_languages = l;
+                }
                 for (lang, vocab) in user.languages {
                     base.languages.insert(lang, vocab);
                 }
@@ -299,6 +233,7 @@ impl Config {
                 .monitor
                 .unwrap_or_else(|| DEFAULT_OVERLAY_MONITOR.to_string()),
             browser_port: raw.browser.debug_port,
+            spoken_languages: raw.asr.languages.unwrap_or_default(),
             confirm_below: raw.matching.confirm_below.unwrap_or(0.9),
             destructive: raw
                 .matching
@@ -310,6 +245,11 @@ impl Config {
 
     pub fn threshold(&self) -> f64 {
         self.threshold
+    }
+
+    /// The languages detection is allowed to settle on.
+    pub fn spoken_languages(&self) -> Vec<String> {
+        self.spoken_languages.clone()
     }
 
     /// The browser's DevTools port, when one is configured.

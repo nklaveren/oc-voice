@@ -43,7 +43,12 @@ pub struct Stream {
 
 impl Stream {
     /// Start capture and everything downstream of it.
-    pub fn start(source: Source, translate: bool, runner: Arc<dyn CommandRunner>) -> Result<Self> {
+    pub fn start(
+        source: Source,
+        translate: bool,
+        runner: Arc<dyn CommandRunner>,
+        languages: Vec<String>,
+    ) -> Result<Self> {
         let vad = VoiceActivityDetector::builder()
             .sample_rate(TARGET_SAMPLE_RATE)
             .chunk_size(VAD_FRAME_SAMPLES)
@@ -71,7 +76,7 @@ impl Stream {
             vad,
             frame_buf: Vec::with_capacity(VAD_FRAME_SAMPLES * 2),
             segment: SpeechSegment::default(),
-            lock: LanguageLock::default(),
+            lock: LanguageLock::restricted_to(languages),
             running,
             handle: Some(handle),
         })

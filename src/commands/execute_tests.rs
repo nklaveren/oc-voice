@@ -9,8 +9,18 @@ fn a_dispatched_command_is_never_also_typed() {
     // for is not gone: an utterance the window grammar acts on must not also
     // land in the message you are composing. Losing the mode must not lose
     // the guarantee.
+    //
+    // The world matters here. With an empty one, "monitor esquerda" resolves
+    // to no monitor, dispatches nothing, and correctly falls through to
+    // dictation — which is the fall-through working, not the guarantee
+    // failing. A command only has to stay out of the buffer when there is
+    // something for it to act on.
     use crate::process::FakeRunner;
-    let fake = Arc::new(FakeRunner::new(b"[]".to_vec()));
+    let fake = Arc::new(FakeRunner::new(
+        br#"[{"name":"AAA-1","description":"BOE","x":0},
+             {"name":"BBB-1","description":"LG ULTRAWIDE","x":2000}]"#
+            .to_vec(),
+    ));
     let runner: Arc<dyn CommandRunner> = fake.clone();
     let config = crate::config::Config::embedded();
     let settings = std::sync::Mutex::new(crate::AppSettings {

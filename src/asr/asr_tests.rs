@@ -174,3 +174,32 @@ fn measure_transcribe_latency() {
         println!("run {run}: 3 s audio in {} ms", t.elapsed().as_millis());
     }
 }
+
+#[test]
+fn a_language_nobody_speaks_here_is_noise_not_disagreement() {
+    // From a live log: a Portuguese sentence was detected as German at
+    // p = 0.198 and came back as "Weil Brot sagt…". Whisper will name any of
+    // its hundred languages on thin evidence, and three seconds of speech is
+    // thin evidence.
+    let mut lock = LanguageLock::restricted_to(vec!["pt".into(), "en".into()]);
+    assert_eq!(lock.observe("de"), None);
+    assert_eq!(lock.locked(), None, "German must never pin");
+
+    // And the stray reading must not reset a real run, or a single bad
+    // segment costs three good ones.
+    assert_eq!(lock.observe("pt"), None);
+    assert_eq!(lock.observe("pt"), None);
+    assert_eq!(lock.observe("de"), None);
+    assert_eq!(lock.observe("pt"), Some("pt"), "the run survived the noise");
+}
+
+#[test]
+fn an_empty_list_still_accepts_anything() {
+    // Someone who really does speak German should not have to discover a
+    // config key to be understood.
+    let mut lock = LanguageLock::restricted_to(Vec::new());
+    for _ in 0..3 {
+        lock.observe("de");
+    }
+    assert_eq!(lock.locked(), Some("de"));
+}

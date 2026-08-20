@@ -10,6 +10,14 @@
 [matching]
 threshold = 0.82
 
+# Os idiomas que realmente se fala aqui. Uma detecção fora desta lista é
+# ruído, não discordância — whisper nomeia qualquer um dos cem idiomas dele
+# com evidência fina, e três segundos de fala é evidência fina. Um log real
+# trouxe "de (p = 0.198)" numa frase em português, e o texto voltou em alemão.
+# Lista vazia aceita qualquer coisa.
+[asr]
+languages = ["pt", "en"]
+
 # Where the floating overlay lands. "middle" | "left" | "right" | "focused",
 # or a connector name such as "DP-1". Monitors are ordered by their global x,
 # left to right — not by the order hyprctl reports them.
@@ -53,8 +61,8 @@ preroll_ms = 300
 [pt]
 prefix = ["computador"]
 send_to = ["enviar para", "envia para", "enviar pelo", "envia pelo", "enviar via", "envia via", "enviar pro", "envia pro", "manda para", "manda pelo", "manda via", "manda pro"]
-send = ["câmbio", "envia", "manda", "pronto"]
-cancel = ["cancela", "limpa", "descarta"]
+send = ["câmbio", "cambio", "envia", "enviar", "manda", "mandar", "pronto", "vai", "isso", "manda ver", "pode enviar", "pode mandar"]
+cancel = ["cancela", "cancelar", "limpa", "limpar", "descarta", "descartar", "apaga", "apagar", "esquece"]
 newline = ["nova linha", "pula linha"]
 session_start = ["grava", "gravar", "gravar sessão", "inicia sessão"]
 session_stop = ["encerra", "encerrar", "encerra sessão", "para de gravar"]
@@ -247,8 +255,8 @@ chat = ["discord", "telegram", "slack", "teams", "element"]
 [en]
 prefix = ["computer"]
 send_to = ["send to", "send via"]
-send = ["send", "over", "done"]
-cancel = ["cancel", "clear", "discard"]
+send = ["send", "send it", "over", "done", "go", "that's it"]
+cancel = ["cancel", "clear", "discard", "scratch that", "forget it"]
 newline = ["new line"]
 session_start = ["record", "start recording", "start session"]
 session_stop = ["stop recording", "end session"]

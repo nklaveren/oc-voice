@@ -95,7 +95,7 @@ pub fn run_audio_pipeline(
         if last_mode != Some(mode) || streams.is_empty() {
             streams.clear(); // Drop stops each capture thread.
             for (source, translate) in streams_for(mode) {
-                match Stream::start(source, translate, runner.clone()) {
+                match Stream::start(source, translate, runner.clone(), config.spoken_languages()) {
                     Ok(s) => streams.push(s),
                     Err(e) => error!(?source, error = ?e, "could not start capture"),
                 }
