@@ -687,7 +687,17 @@ Rótulo de controle é texto arbitrário, então ganha a mesma barra 0.90 e o me
 
 `CommandRunner` ganhou `dry_run()`. O `Page` fala socket direto, e socket não é subprocesso — sem isso a sonda clicaria enquanto explicava o que clicaria, exatamente a armadilha do `curl .../json/activate`.
 
-**Falta:** iframes e shadow DOM (o `querySelectorAll` não atravessa nenhum dos dois), e uma forma de escolher entre candidatos em vez de recusar.
+**Medido também num cliente de chat**, que é caso melhor que a caixa de e-mail:
+
+```
+30 controles, 27 nomeáveis, 3 só ícone      (90% — contra 66% no e-mail)
+search -> 1     status -> 1     spotify -> 0
+foco após "campo search" -> "Search or start a new chat"
+```
+
+**E uma hipótese que a medição derrubou.** A lista de conversas é 69 `[role=row]`, o que parecia exatamente a coisa a alcançar — o seletor não a incluía. Incluído, trouxe 78 controles dos quais **zero** tinham nome: `innerText` vazio, sem `aria-label`. Saiu de novo. Lista só é endereçável quando as entradas carregam texto; nesse app não carregam, e a resposta honesta é que as conversas estão fora de alcance, não que estão listadas.
+
+**Falta:** iframes e shadow DOM (o `querySelectorAll` não atravessa nenhum dos dois), entradas de lista sem nome acessível, e uma forma de escolher entre candidatos em vez de recusar.
 
 ---
 

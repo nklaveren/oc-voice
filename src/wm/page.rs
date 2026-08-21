@@ -60,9 +60,18 @@ impl Control {
 /// The script that answers "what is on this page". Runs in the page, returns
 /// JSON, and stamps each element with an index so a later call can act on it
 /// without re-finding it by text.
+///
+/// `[role=row]` is deliberately absent, and the reason is measured rather than
+/// assumed. A live chat client exposes its conversation list as 69 of them,
+/// which looked like exactly the thing to reach — and every one returned empty
+/// `innerText` with no accessible name. Adding the role brought 78 controls of
+/// which zero could be named out loud. A list is only addressable when its
+/// entries carry text; here they do not, and the honest answer is that this
+/// app's conversations are out of reach rather than that they are listed.
 const SURVEY: &str = r#"(() => {
   const sel = 'button,a,input,textarea,select,[role=button],[role=link],'
             + '[role=textbox],[role=combobox],[role=menuitem],[role=tab],'
+            + '[role=option],[role=treeitem],'
             + '[contenteditable=true]';
   window.__ocv = [...document.querySelectorAll(sel)].filter(e => e.getClientRects().length);
   return JSON.stringify(window.__ocv.map((e, id) => {

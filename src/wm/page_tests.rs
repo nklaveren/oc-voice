@@ -132,15 +132,19 @@ mod live {
             controls.len() - speakable
         );
 
-        for spoken in ["search", "calendar", "reply", "spotify"] {
+        // Words to try can be given on the command line, because the page
+        // in front of you is not the page this was written against.
+        let probe = std::env::var("OCV_SAY").unwrap_or_else(|_| "search,spotify".into());
+        for spoken in probe.split(',') {
             let hits = resolve(spoken, &controls, 0.82);
             let names: Vec<&str> = hits.iter().take(3).map(|c| c.text.as_str()).collect();
             println!("  {spoken:<10} -> {} candidato(s) {names:?}", hits.len());
         }
 
-        // Focusing a search box is the one effect safe to take unattended:
-        // it moves the caret and changes nothing.
-        if let Some(target) = resolve("search", &controls, 0.82).first() {
+        // Focusing a field is the one effect safe to take unattended: it
+        // moves the caret and changes nothing.
+        let first = probe.split(',').next().unwrap_or_default().to_string();
+        if let Some(target) = resolve(&first, &controls, 0.82).first() {
             page.focus(target).expect("focus");
             let active = page
                 .eval("document.activeElement && (document.activeElement.getAttribute('aria-label')||document.activeElement.tagName)")
