@@ -85,35 +85,6 @@ fn zero_preroll_behaves_exactly_as_before() {
     assert_eq!(seg.samples[0], 0.9);
 }
 
-/// Print what the machine was doing during the run. A latency number
-/// without its conditions misleads later: the first CPU measurement of
-/// this benchmark was taken under a 40 W power cap with a SQL Server VM
-/// running, and got published as a hardware verdict.
-fn report_conditions() {
-    let read = |p: &str| {
-        std::fs::read_to_string(p)
-            .ok()
-            .map(|s| s.trim().to_string())
-    };
-    println!(
-        "  perfil: {}   governor: {}",
-        read("/sys/firmware/acpi/platform_profile").unwrap_or_else(|| "?".into()),
-        read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor").unwrap_or_else(|| "?".into())
-    );
-    if let Some(w) = read("/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw")
-        .and_then(|v| v.parse::<u64>().ok())
-    {
-        println!("  limite RAPL: {} W", w / 1_000_000);
-    }
-    if let Some(load) = read("/proc/loadavg") {
-        let first = load.split_whitespace().next().unwrap_or("?");
-        println!("  load average: {first}");
-        if first.parse::<f32>().unwrap_or(0.0) > 2.0 {
-            println!("  AVISO: máquina ocupada — este número não representa a máquina em repouso");
-        }
-    }
-}
-
 #[test]
 fn a_single_odd_detection_never_pins_a_language() {
     // The live failure: a run of `en` with one `es` at p=0.24 in the
@@ -140,39 +111,6 @@ fn a_genuine_language_change_still_settles() {
     assert_eq!(lock.observe("es"), None);
     assert_eq!(lock.observe("es"), None);
     assert_eq!(lock.observe("es"), Some("es"));
-}
-
-/// Latency measurement for M5.4 — run explicitly, needs the model:
-///   OC_VOICE_MODEL=models/ggml-large-v3-turbo-q8_0.bin \
-///   cargo test --release [--no-default-features --features cpu] \
-///     -- --ignored --nocapture measure_transcribe_latency
-///
-/// Times a 3 s window. Whisper's encoder cost is dominated by the padded
-/// mel window, so silence is a fair stand-in for speech within ~10%.
-#[test]
-#[ignore]
-fn measure_transcribe_latency() {
-    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
-    let model = std::env::var("OC_VOICE_MODEL").expect("set OC_VOICE_MODEL");
-    report_conditions();
-    let load_start = std::time::Instant::now();
-    let ctx = WhisperContext::new_with_params(&model, WhisperContextParameters::default())
-        .expect("model loads");
-    let mut state = ctx.create_state().expect("state");
-    println!("model load: {} ms", load_start.elapsed().as_millis());
-    let audio = vec![0.0_f32; 3 * 16_000];
-    for run in 0..3 {
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        params.set_single_segment(true);
-        params.set_language(Some("pt"));
-        let t = std::time::Instant::now();
-        state.full(params, &audio).expect("full");
-        println!("run {run}: 3 s audio in {} ms", t.elapsed().as_millis());
-    }
 }
 
 #[test]

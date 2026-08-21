@@ -130,44 +130,6 @@ fn embedded_bindings_are_internally_consistent() {
     assert!(!c.vocab("pt").unwrap().send_to.is_empty());
 }
 
-/// Dump of every effective binding — run with --ignored --nocapture.
-#[test]
-#[ignore]
-fn live_dump_effective_bindings() {
-    let c = Config::load();
-    println!(
-        "\nthreshold={} confirm_below={}",
-        c.threshold(),
-        c.confirm_below()
-    );
-    for lang in ["pt", "en"] {
-        let v = c.vocab(lang).unwrap();
-        println!("\n[{lang}]");
-        println!(
-            "  prefix     {:?} (require: {})",
-            v.prefix, v.require_prefix
-        );
-        println!("  send       {:?}", v.send);
-        println!("  cancel     {:?}", v.cancel);
-        println!("  newline    {:?}", v.newline);
-        println!("  confirm    {:?}  deny {:?}", v.confirm, v.deny);
-        println!("  send_to    {:?}", v.send_to);
-        let mut nums: Vec<_> = v.numbers.iter().collect();
-        nums.sort_by_key(|(_, n)| **n);
-        println!("  numbers    {nums:?}");
-        println!("  directions {:?}", v.directions);
-        for (cat, pats) in &v.targets {
-            println!("  target {cat:<10} -> {pats:?}");
-        }
-        for (w, a) in &v.wm_commands {
-            println!("  wm  \"{w}\" -> {a}");
-        }
-        for t in &v.templates {
-            println!("  tpl \"{}\" -> {}", t.pattern, t.action);
-        }
-    }
-}
-
 #[test]
 fn user_section_replaces_embedded_language() {
     let mut base = Config::embedded();

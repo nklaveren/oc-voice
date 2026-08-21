@@ -257,8 +257,9 @@ a docs reference checker.
 just run-cpu
 ```
 
-Measured with `large-v3-turbo` Q8 on this repo's ignored benchmark
-(`measure_transcribe_latency`, 3 s of audio):
+Measured once with `large-v3-turbo` Q8 over 3 s of audio. The benchmark that
+produced these has been removed — it was a script wearing a test's clothes, and
+the numbers below are the whole of what it ever produced:
 
 | Build | 3 s of audio | Model load | Hardware |
 |---|---|---|---|
@@ -267,10 +268,7 @@ Measured with `large-v3-turbo` Q8 on this repo's ignored benchmark
 
 \* **Measured on a contended machine** — a low power profile was active and a
 SQL Server VM was running, so treat it as a lower bound on what the CPU path
-can do, not as this CPU's capability. The benchmark now prints the power
-profile, RAPL limit and load average alongside the timing, and warns when the
-load makes the number unrepresentative; re-run it on an idle machine before
-quoting it.
+can do, not as this CPU's capability.
 
 The direction still holds: `large-v3-turbo` is far from realtime on CPU and
 cannot drive live partials. Without an NVIDIA GPU, swap `model_name` in the

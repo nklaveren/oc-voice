@@ -218,44 +218,6 @@ fn closing_a_window_that_is_not_open_asks_nothing() {
     ));
     let _ = fake;
 }
-
-mod live {
-    use super::*;
-
-    use crate::process::SystemRunner;
-
-    /// Live: what the monitor words resolve to on THIS session right now.
-    #[test]
-    #[ignore]
-    fn live_monitors_resolve_by_position_and_brand() {
-        let runner: Arc<dyn CommandRunner> = Arc::new(SystemRunner);
-        let monitors = live_monitors(&runner);
-        assert!(!monitors.is_empty(), "no monitors listed");
-        println!("\nmonitores vivos (por x):");
-        let mut sorted: Vec<&MonitorInfo> = monitors.iter().collect();
-        sorted.sort_by_key(|m| m.x);
-        for m in &sorted {
-            println!("  x={:<6} {:<10} {}", m.x, m.name, m.description);
-        }
-        let config = crate::config::Config::load();
-        let vocab = config.vocab("pt").expect("pt vocab");
-        println!("\nposição:");
-        for (word, dir) in [("esquerda", "l"), ("meio", "m"), ("direita", "r")] {
-            match monitor_by_position(&monitors, dir) {
-                Some(name) => println!("  monitor da {word:<10} -> {name}"),
-                None => println!("  monitor da {word:<10} -> [não resolveu]"),
-            }
-        }
-        println!("\nmarca/modelo:");
-        for spoken in ["samsung", "lg", "odyssey", "ultrawide", "dell"] {
-            match monitor_by_name(spoken, vocab, &monitors, config.threshold()) {
-                Some(name) => println!("  monitor {spoken:<10} -> {name}"),
-                None => println!("  monitor {spoken:<10} -> [recusado]"),
-            }
-        }
-    }
-}
-
 /// Every binding the app ships, and exactly what each one dispatches.
 ///
 /// The hand-picked tests above check the cases someone thought of. This walks
