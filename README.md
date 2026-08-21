@@ -247,13 +247,18 @@ it wedged into the layout. A window rule applies at map time and removes that
 entirely:
 
 ```
-# ~/.config/hypr/hyprland.conf
-windowrulev2 = float, class:^(oc-voice)$
-windowrulev2 = pin, class:^(oc-voice)$
-windowrulev2 = noborder, class:^(oc-voice)$
-windowrulev2 = noshadow, class:^(oc-voice)$
-windowrulev2 = nofocus, class:^(oc-voice)$
+# ~/.config/hypr/hyprland.conf  —  Hyprland 0.45 and later
+windowrule = float 1, match:class oc-voice
+windowrule = pin 1, match:class oc-voice
+windowrule = noborder 1, match:class oc-voice
+windowrule = noshadow 1, match:class oc-voice
+windowrule = nofocus 1, match:class oc-voice
 ```
+
+On Hyprland before 0.45 the same rules are spelled `windowrulev2 = float,
+class:^(oc-voice)$`. Getting the spelling wrong is silent — the rule simply
+never matches, and the only symptom is the startup flicker this was meant to
+remove.
 
 `nofocus` is the one worth understanding: without it the overlay steals focus
 when it appears, and Enter-mode text then lands in the overlay instead of the

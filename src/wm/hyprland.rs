@@ -37,40 +37,37 @@ pub fn try_hyprland_float(runner: Arc<dyn CommandRunner>, want_monitor: String) 
 
         let monitors = hyprctl_monitors(&runner);
         let target = pick_monitor(&monitors, &want_monitor).cloned();
-        std::thread::sleep(Duration::from_millis(300));
 
-        for attempt in 0..25 {
-            match overlay_state(&runner) {
-                Some(state) => {
-                    apply_float_and_pin(&runner, &state);
-                    // Re-read: a toggle that raced with Hyprland mapping the
-                    // window silently does the opposite of what we want.
+        // No pre-sleep, and a tight poll: every millisecond here is one the
+        // overlay spends where the compositor put it instead of where it was
+        // asked to go, which is the flicker at startup.
+        for attempt in 0..150 {
+            if let Some(state) = overlay_state(&runner) {
+                // Re-read only when a toggle was dispatched. Confirming that
+                // nothing happened cost 120 ms on every start whose window
+                // rules had already done the job.
+                let settled = if apply_float_and_pin(&runner, &state) {
                     std::thread::sleep(Duration::from_millis(120));
-                    if let Some(after) = overlay_state(&runner) {
-                        if after.floating && after.pinned {
-                            if let Some(ref mon) = target {
-                                position_overlay(&runner, mon);
-                            }
-                            info!("overlay floating and pinned");
-                            return;
-                        }
-                        debug!(
-                            floating = after.floating,
-                            pinned = after.pinned,
-                            "state did not stick, retrying"
-                        );
+                    overlay_state(&runner).is_some_and(|a| a.floating && a.pinned)
+                } else {
+                    state.floating && state.pinned
+                };
+                if settled {
+                    if let Some(ref mon) = target {
+                        position_overlay(&runner, mon);
                     }
+                    info!(attempt, "overlay floating and pinned");
+                    return;
                 }
-                None if attempt == 0 => {
-                    info!("detected Hyprland, waiting for the overlay window...");
-                }
-                None => {}
+                debug!(attempt, "state did not stick, retrying");
+            } else if attempt == 0 {
+                info!("detected Hyprland, waiting for the overlay window...");
             }
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(30));
         }
         warn!(
-            "could not make the overlay float after 5 s — add a window rule: \
-             windowrulev2 = float, class:^(oc-voice)$"
+            "could not make the overlay float — add a window rule. \
+             Hyprland 0.45+: windowrule = float, class:oc-voice"
         );
     });
 }
@@ -99,18 +96,22 @@ fn overlay_state(runner: &Arc<dyn CommandRunner>) -> Option<OverlayState> {
     })
 }
 
-/// Apply only what is missing. `setfloating` is idempotent; `pin` is a
-/// toggle, so it is issued only when the window is not already pinned.
-fn apply_float_and_pin(runner: &Arc<dyn CommandRunner>, state: &OverlayState) {
+/// Apply only what is missing, and say whether anything was. `setfloating` is
+/// idempotent; `pin` is a toggle, so it is issued only when not already pinned.
+fn apply_float_and_pin(runner: &Arc<dyn CommandRunner>, state: &OverlayState) -> bool {
     let target = format!("address:{}", state.address);
+    let mut changed = false;
     if !state.floating {
         let _ = runner.output("hyprctl", &["dispatch", "setfloating", &target]);
+        changed = true;
     }
     if !state.pinned {
         // Pinning requires the window to be floating already.
         std::thread::sleep(Duration::from_millis(60));
         let _ = runner.output("hyprctl", &["dispatch", "pin", &target]);
+        changed = true;
     }
+    changed
 }
 
 /// One monitor as Hyprland reports it. `x`/`y` are the monitor's origin in
