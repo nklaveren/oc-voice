@@ -239,6 +239,8 @@ pub fn run(model_path: &str) -> Result<()> {
         detected_language: None,
         session_request: None,
         toggle_settings: false,
+        voice_request: None,
+        voice_state: crate::VoiceState::Off,
     }));
 
     println!(

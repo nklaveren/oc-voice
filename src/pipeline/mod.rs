@@ -34,6 +34,7 @@ struct Ctx<'a> {
     enter_buffer: &'a mut Vec<String>,
     pending: &'a mut Option<commands::PendingAction>,
     recording: &'a mut Option<crate::session::Session>,
+    voice: &'a mut crate::voicelock::VoiceLock,
 }
 
 /// Owns whisper, VAD, cpal, and runs the main transcription loop.
@@ -69,6 +70,9 @@ pub fn run_audio_pipeline(
     let mut enter_buffer: Vec<String> = Vec::new();
     let mut pending: Option<commands::PendingAction> = None;
     let mut recording: Option<crate::session::Session> = None;
+    // Constructed even when no voice is stored: it is inert then, and the
+    // 29 MB model is only loaded the first time something is judged.
+    let mut voice = crate::voicelock::VoiceLock::new(crate::voicelock::default_model_path());
 
     let mut streams: Vec<Stream> = Vec::new();
     let mut last_mode: Option<TranscribeMode> = None;
@@ -108,6 +112,15 @@ pub fn run_audio_pipeline(
             );
         }
 
+        // The Settings button only ever asks; the lock lives here, with the
+        // audio it needs. Taken rather than read, so one press is one action.
+        match lock_settings(&settings).voice_request.take() {
+            Some(crate::VoiceRequest::Enrol) => voice.begin(),
+            Some(crate::VoiceRequest::Clear) => voice.clear(),
+            None => {}
+        }
+        publish_voice_state(&settings, &voice);
+
         let mut idle = true;
         for stream in streams.iter_mut() {
             let frames = stream.take_frames();
@@ -132,6 +145,7 @@ pub fn run_audio_pipeline(
                     enter_buffer: &mut enter_buffer,
                     pending: &mut pending,
                     recording: &mut recording,
+                    voice: &mut voice,
                 };
                 advance(stream, &mut state, mode, &mut ctx)?;
             }
@@ -206,6 +220,15 @@ fn advance(
         return Ok(());
     }
 
+    // Whose voice this was, decided before whisper runs. The embedding costs
+    // ~13 ms and transcription costs far more, so refusing early is cheaper
+    // than refusing late — and during enrolment there is nothing to transcribe
+    // at all.
+    if stream.source.may_command() && !voice_allows(stream, ctx) {
+        stream.segment.reset();
+        return Ok(());
+    }
+
     let opts = stream.opts(&language, true);
     let text = asr::transcribe_locked(state, &stream.segment.samples, &opts, &mut stream.lock)?;
     let trimmed = text.trim().to_string();
@@ -248,6 +271,41 @@ fn advance(
     handle_final(stream.source, &trimmed, mode, ctx);
     stream.segment.reset();
     Ok(())
+}
+
+/// Put the lock's own view of itself where the UI can read it.
+fn publish_voice_state(settings: &Arc<Mutex<AppSettings>>, voice: &crate::voicelock::VoiceLock) {
+    let state = voice.state();
+    let mut s = lock_settings(settings);
+    if s.voice_state != state {
+        s.voice_state = state;
+    }
+}
+
+/// Whether this segment may go on to whisper.
+///
+/// Returns false only when the segment was swallowed — fed to an enrolment, or
+/// rejected as somebody else's voice. A rejection is reported to the overlay:
+/// an assistant that silently ignores you is indistinguishable from one that
+/// has crashed, and this is the one feature whose whole job is to ignore
+/// things.
+fn voice_allows(stream: &Stream, ctx: &mut Ctx<'_>) -> bool {
+    use crate::voicelock::Verdict;
+    let verdict = ctx.voice.offer(&stream.segment.samples);
+    publish_voice_state(ctx.settings, ctx.voice);
+    match verdict {
+        Verdict::Pass | Verdict::Accept(_) => true,
+        Verdict::Enrolling(_) => false,
+        Verdict::Enrolled(segments) => {
+            emit(ctx.tx, TranscriptEvent::VoiceLocked(segments));
+            false
+        }
+        Verdict::Reject(score) => {
+            debug!(score, "not your voice; dropped");
+            emit(ctx.tx, TranscriptEvent::VoiceRejected(score));
+            false
+        }
+    }
 }
 
 /// Session control, recording, and mode routing for one finalized utterance.
@@ -295,75 +353,6 @@ fn primary_source(mode: TranscribeMode) -> Source {
     }
 }
 
-/// Open a recording. No-op if one is already open.
-///
-/// The single place a session is created, so the spoken command and the
-/// overlay's button cannot drift into behaving differently.
-fn start_session(
-    source: Source,
-    recording: &mut Option<crate::session::Session>,
-    tx: &Sender<TranscriptEvent>,
-) -> bool {
-    if recording.is_some() {
-        return false;
-    }
-    let session = crate::session::Session::start(source.label());
-    // Create the file now, empty. The overlay's button needs somewhere to
-    // point before the first sentence is finished, and a file that exists and
-    // grows is easier to trust than one that appears at the end.
-    let path = match session.write(&crate::session::default_dir()) {
-        Ok(p) => p.display().to_string(),
-        Err(e) => {
-            error!(error = ?e, "failed to create session file");
-            String::new()
-        }
-    };
-    *recording = Some(session);
-    emit(tx, TranscriptEvent::SessionStarted(path));
-    true
-}
-
-/// Close a recording. No-op if none is open.
-fn stop_session(
-    recording: &mut Option<crate::session::Session>,
-    tx: &Sender<TranscriptEvent>,
-) -> bool {
-    let Some(s) = recording.take() else {
-        return false;
-    };
-    match s.write(&crate::session::default_dir()) {
-        Ok(path) => {
-            info!(path = %path.display(), lines = s.line_count(), "session closed");
-            emit(
-                tx,
-                TranscriptEvent::SessionStopped(path.display().to_string(), s.line_count()),
-            );
-        }
-        Err(e) => error!(error = ?e, "failed to write session"),
-    }
-    true
-}
-
-/// Returns true when the utterance was a session command and is fully handled.
-fn session_control(source: Source, trimmed: &str, ctx: &mut Ctx<'_>) -> bool {
-    let vocab = config::active_vocab(ctx.config, ctx.settings);
-    match vocab.and_then(|v| commands::classify(trimmed, v, ctx.config.threshold())) {
-        Some(commands::VoiceCommand::SessionStart) => start_session(source, ctx.recording, ctx.tx),
-        Some(commands::VoiceCommand::SessionStop) => stop_session(ctx.recording, ctx.tx),
-        Some(commands::VoiceCommand::SetMode(name)) => switch_mode(&name, ctx),
-        Some(commands::VoiceCommand::Help) => {
-            let Some(vocab) = config::active_vocab(ctx.config, ctx.settings) else {
-                return false;
-            };
-            for line in commands::help_lines(vocab) {
-                emit(ctx.tx, TranscriptEvent::notice(line));
-            }
-            true
-        }
-        _ => false,
-    }
-}
-
 /// Change transcription mode by voice. Works from every mode, unlike the
 /// window-manager grammar, which only runs in Command mode — a mode you
 /// cannot reach if you are stuck in another one without touching the mouse.
@@ -386,3 +375,7 @@ fn switch_mode(name: &str, ctx: &mut Ctx<'_>) -> bool {
 #[cfg(test)]
 #[path = "pipeline_tests.rs"]
 mod tests;
+
+#[path = "session_control.rs"]
+mod session_control;
+use session_control::{session_control, start_session, stop_session};

@@ -15,6 +15,12 @@ pub fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
         TranscriptEvent::Final { text, source } => {
             write_stdout(&format!("\r\x1b[2K[final:{}] {text}\n", source.label()))
         }
+        TranscriptEvent::VoiceLocked(n) => {
+            write_stdout(&format!("\r\x1b[2K[voz]      gravada de {n} trecho(s)\n"))
+        }
+        TranscriptEvent::VoiceRejected(score) => {
+            write_stdout(&format!("\r\x1b[2K[voz]      ignorado ({score:.2})\n"))
+        }
         TranscriptEvent::Buffered(n) => write_stdout(&format!(
             "\r\x1b[2K[buffered] {n} line(s) waiting for keyword"
         )),

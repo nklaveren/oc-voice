@@ -28,6 +28,7 @@ mod process;
 mod session;
 mod translate;
 mod ui;
+mod voicelock;
 mod voices;
 mod wm;
 
@@ -95,6 +96,12 @@ pub enum TranscriptEvent {
     /// Sent when a partial utterance ends with no recognizable text; lets the
     /// UI clear that stream's partial without touching the other's.
     PartialCleared(Source),
+    /// The voice lock finished enrolling, from this many segments.
+    VoiceLocked(usize),
+    /// An utterance was dropped as somebody else's voice, with its score.
+    /// Shown, not swallowed: an assistant that ignores you silently is
+    /// indistinguishable from one that has crashed.
+    VoiceRejected(f32),
     /// In Enter mode: accumulated line count waiting for "cambio".
     Buffered(usize),
     /// In Enter mode: text was sent to the focused input.
@@ -194,6 +201,31 @@ pub enum SessionRequest {
     Stop,
 }
 
+/// What the Settings button asked for. Like `session_request`: the lock lives
+/// in the pipeline thread, which owns the audio, and only it may change one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VoiceRequest {
+    /// Start listening for `ENROL_SECONDS` of your speech.
+    Enrol,
+    /// Forget the stored voice.
+    Clear,
+}
+
+/// What the pipeline has to say about the lock, for the UI to draw. Reported
+/// rather than asked, because a button that shows what it *requested* instead
+/// of what happened is a button that lies while the microphone is muted.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum VoiceState {
+    #[default]
+    Off,
+    /// Fraction of the enrolment collected, 0.0 to 1.0.
+    Enrolling(f32),
+    On {
+        segments: usize,
+        threshold: f32,
+    },
+}
+
 pub struct AppSettings {
     pub language: String,
     pub mode: TranscribeMode,
@@ -208,6 +240,10 @@ pub struct AppSettings {
     /// others: the panel's state belongs to the UI, and only the UI may flip
     /// it — this just knocks.
     pub toggle_settings: bool,
+    /// Set by the Settings button, consumed by the pipeline.
+    pub voice_request: Option<VoiceRequest>,
+    /// Written by the pipeline, read by the UI.
+    pub voice_state: VoiceState,
 }
 
 /// Lock shared settings, recovering from mutex poisoning. A poisoned lock
@@ -283,6 +319,8 @@ fn main() -> Result<()> {
         detected_language: None,
         session_request: None,
         toggle_settings: false,
+        voice_request: None,
+        voice_state: crate::VoiceState::Off,
     }));
 
     // A third way in, beside the buttons and the spoken words: a keybinding.

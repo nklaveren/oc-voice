@@ -628,6 +628,10 @@ Por segmento: áudio → fbank → vetor de embedding → similaridade de cossen
 
 **O que sobrava antes disto:** O modelo não come áudio: quer mel de 80 bandas no formato Kaldi. Calcular diferente de como ele foi treinado produz embedding *confiantemente errado*, não obviamente quebrado — o pior modo de falha possível, porque o cosseno continua devolvendo números plausíveis. Vai em Rust puro, não por purismo: `knf-rs` traria leptonica/C++ e a última biblioteca C++ adicionada a este binário colidiu com os símbolos do onnxruntime.
 
+**Travar na própria voz está feito (`src/voicelock.rs`), e é a metade que paga.** Botão "Só a minha voz" no Settings: 15 s de fala, embedding por segmento do VAD, centroide, e daí em diante o modo Agent só aceita comando que casa. O limiar **sai da medição**, não de chute — similaridade leave-one-out das suas próprias amostras, menos uma margem. Deixar a amostra dentro do centroide contra o qual ela é comparada infla o número, e com poucas amostras esse viés é a maior parte dele; o limiar sairia alto demais e recusaria você. O arquivo é `voice.toml`, texto puro, e guarda `self_worst` e `self_mean` — os números de onde o limiar veio, para poderem ser contestados.
+
+**Dois limites honestos, e o segundo é uma escolha, não um descuido.** O que isto **não** mede é quão perto um impostor pontua: isso precisa da voz de outra pessoa. O limiar protege contra recusar você; o poder de recusar outro está por medir. E **fala curta nunca é recusada**: abaixo de ~1 s o embedding é instável, e as falas que chegam curtas são `sim`, `não`, `câmbio` — as confirmações e a palavra de envio, que são os comandos mais usados. Derrubá-las por segurança quebraria o app para protegê-lo.
+
 **Cadastro opcional.** Sem cadastro os rótulos são `Falante A`, `Falante B`. Gravando a própria voz uma vez, o dono da máquina vira `Nicolas` e o resto continua anônimo — barato de implementar e melhora muito a legibilidade da ata.
 
 **Limites honestos, e precisam estar no README:**

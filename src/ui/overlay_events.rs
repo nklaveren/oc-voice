@@ -87,6 +87,23 @@ impl OverlayApp {
                     }
                     self.push_line(text, source);
                 }
+                // The lock's two announcements. A rejection has to be visible:
+                // the whole job of this feature is to ignore things, and an
+                // assistant that ignores you without a word looks broken.
+                TranscriptEvent::VoiceLocked(segments) => {
+                    self.partial_mic.clear();
+                    self.push_line(
+                        format!("[ voz gravada — {segments} trechos ]"),
+                        crate::Source::Mic,
+                    );
+                }
+                TranscriptEvent::VoiceRejected(score) => {
+                    self.partial_mic.clear();
+                    self.push_line(
+                        format!("[ ignorado: não é a sua voz ({score:.2}) ]"),
+                        crate::Source::System,
+                    );
+                }
                 TranscriptEvent::Buffered(n) => {
                     self.partial_mic.clear();
                     self.buffered = n;

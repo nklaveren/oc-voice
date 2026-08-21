@@ -13,6 +13,8 @@ fn settings() -> Arc<Mutex<AppSettings>> {
         detected_language: None,
         session_request: None,
         toggle_settings: false,
+        voice_request: None,
+        voice_state: crate::VoiceState::Off,
     }))
 }
 

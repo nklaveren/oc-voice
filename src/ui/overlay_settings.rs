@@ -192,6 +192,8 @@ impl OverlayApp {
                         .text("height")
                         .fixed_decimals(0),
                 );
+                ui.add_space(8.0);
+                self.voice_section(ui);
                 ui.add_space(6.0);
                 ui.label("Language:");
                 ui.horizontal_wrapped(|ui| {
@@ -218,6 +220,79 @@ impl OverlayApp {
         }
         if self.layout != before {
             self.save_layout();
+        }
+    }
+}
+
+impl OverlayApp {
+    /// The voice lock, in whichever of its three states it is in.
+    ///
+    /// Only meaningful in Agent mode, and it says so rather than quietly doing
+    /// nothing: the meeting's audio never commands anything, so filtering it
+    /// by speaker would be filtering a stream that already cannot act.
+    fn voice_section(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("\u{1f3a4} Voz").strong().size(15.0));
+        let state = crate::lock_settings(&self.settings).voice_state;
+        match state {
+            crate::VoiceState::Enrolling(progress) => {
+                ui.add(
+                    egui::ProgressBar::new(progress)
+                        .text(format!("falando… {:.0}%", progress * 100.0)),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "fale normalmente por ~{:.0}s — pode ser qualquer coisa",
+                        crate::voicelock::ENROL_SECONDS
+                    ))
+                    .italics()
+                    .size(12.0)
+                    .color(egui::Color32::from_gray(140)),
+                );
+                // The progress only moves when a segment closes, and a segment
+                // only closes when you stop talking. Without this the bar sits
+                // still and looks stuck.
+                ui.ctx().request_repaint();
+            }
+            crate::VoiceState::On {
+                segments,
+                threshold,
+            } => {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("\u{2713} só a minha voz")
+                            .color(MIC_COLOR)
+                            .strong(),
+                    );
+                    if ui.button("Esquecer").clicked() {
+                        crate::lock_settings(&self.settings).voice_request =
+                            Some(crate::VoiceRequest::Clear);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(format!("{segments} trechos, limiar {threshold:.3}"))
+                        .italics()
+                        .size(12.0)
+                        .color(egui::Color32::from_gray(140)),
+                );
+            }
+            crate::VoiceState::Off => {
+                if ui
+                    .button("Só a minha voz")
+                    .on_hover_text("grava sua voz e passa a ignorar as outras")
+                    .clicked()
+                {
+                    crate::lock_settings(&self.settings).voice_request =
+                        Some(crate::VoiceRequest::Enrol);
+                }
+                ui.label(
+                    egui::RichText::new(
+                        "no modo Agent: comandos só disparam na sua voz. Frases curtas passam sempre.",
+                    )
+                    .italics()
+                    .size(12.0)
+                    .color(egui::Color32::from_gray(140)),
+                );
+            }
         }
     }
 }

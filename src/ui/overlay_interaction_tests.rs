@@ -200,3 +200,42 @@ fn closing_asks_first(w: f32, h: f32) {
     }
     assert!(confirmed, "the close can be armed but never confirmed");
 }
+
+#[test]
+fn the_voice_button_is_reachable_and_only_asks() {
+    // Two things at once, and the second is the one that matters. The button
+    // has to be hittable — the panel scrolls, and a control below the fold is
+    // a control that does not exist. And it must only *ask*: the lock lives in
+    // the pipeline thread with the audio, and a UI that changed it directly
+    // would be a second place for the two to disagree, which is the same rule
+    // the record button follows.
+    let (mut app, _tx) = app_with_channel();
+    let h = Harness::new(&mut app, 900.0, 350.0);
+    app.show_settings = true;
+
+    // Stops at the first hit: this asks whether the control is reachable, not
+    // how large it is, and a full sweep of the panel costs twenty seconds.
+    let mut found = None;
+    'sweep: for y in (40..320).step_by(8) {
+        for x in (20..420).step_by(8) {
+            crate::lock_settings(&app.settings).voice_request = None;
+            h.click(&mut app, egui::pos2(x as f32, y as f32));
+            if crate::lock_settings(&app.settings).voice_request == Some(crate::VoiceRequest::Enrol)
+            {
+                found = Some((x, y));
+                break 'sweep;
+            }
+        }
+    }
+    assert!(
+        found.is_some(),
+        "nothing in the Settings panel asks to enrol a voice"
+    );
+
+    // And nothing about pressing it changes the lock itself.
+    assert_eq!(
+        crate::lock_settings(&app.settings).voice_state,
+        crate::VoiceState::Off,
+        "the button must not set the state it is only allowed to request"
+    );
+}
