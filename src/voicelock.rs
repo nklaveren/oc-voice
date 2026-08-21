@@ -36,9 +36,18 @@ pub const MIN_JUDGE_SECONDS: f32 = 1.0;
 /// across 0.26–0.68. Same voice, same microphone — the short ones carry too
 /// little to place anybody.
 pub const MIN_ENROL_SECONDS: f32 = 2.0;
-/// How far below your own worst measured sample the bar sits. Room for a
-/// different chair, a cold, a hand near the microphone.
-const MARGIN: f32 = 0.05;
+/// How far below your own worst measured sample the bar sits.
+///
+/// Measured, and the first measurement said 0.05 was wrong. A four-segment
+/// enrolment produced a bar of 0.712; a separate clean recording of the same
+/// person then scored 0.656, 0.670 and 0.941 against it — two of its three
+/// stretches rejected the person the lock was built from. Fifteen seconds of
+/// one sitting does not contain the range of a voice across a day, so a bar
+/// fitted tightly to it is fitted to the wrong thing.
+///
+/// This is one person on one machine. It is a provisional number and the file
+/// keeps the evidence beside it so it can be argued with.
+const MARGIN: f32 = 0.15;
 
 /// What the enrolment measured, and the bar it produced. Plain text on
 /// purpose: a person editing this file beats any confidence heuristic, and it

@@ -224,10 +224,19 @@ fn advance(
     // ~13 ms and transcription costs far more, so refusing early is cheaper
     // than refusing late — and during enrolment there is nothing to transcribe
     // at all.
-    if stream.source.may_command() && !voice_allows(stream, ctx) {
-        stream.segment.reset();
-        return Ok(());
-    }
+    // A voice that is not yours does not get to drive anything — but it still
+    // gets transcribed and shown. Dropping the utterance made a wrong
+    // rejection destroy a sentence, and a bar this new is wrong often enough
+    // that the cost of being wrong is what has to be small. Now the worst a
+    // mistake does is make you press Enter yourself.
+    let mine = match voice_check(stream, ctx) {
+        VoiceCheck::Swallow => {
+            stream.segment.reset();
+            return Ok(());
+        }
+        VoiceCheck::Yours => true,
+        VoiceCheck::Someone => false,
+    };
 
     let opts = stream.opts(&language, true);
     let text = asr::transcribe_locked(state, &stream.segment.samples, &opts, &mut stream.lock)?;
@@ -268,52 +277,27 @@ fn advance(
         crate::translate::request(ctx.translator, &trimmed);
     }
 
-    handle_final(stream.source, &trimmed, mode, ctx);
+    handle_final(stream.source, &trimmed, mode, mine, ctx);
     stream.segment.reset();
     Ok(())
 }
 
-/// Put the lock's own view of itself where the UI can read it.
-fn publish_voice_state(settings: &Arc<Mutex<AppSettings>>, voice: &crate::voicelock::VoiceLock) {
-    let state = voice.state();
-    let mut s = lock_settings(settings);
-    if s.voice_state != state {
-        s.voice_state = state;
-    }
-}
-
-/// Whether this segment may go on to whisper.
-///
-/// Returns false only when the segment was swallowed — fed to an enrolment, or
-/// rejected as somebody else's voice. A rejection is reported to the overlay:
-/// an assistant that silently ignores you is indistinguishable from one that
-/// has crashed, and this is the one feature whose whole job is to ignore
-/// things.
-fn voice_allows(stream: &Stream, ctx: &mut Ctx<'_>) -> bool {
-    use crate::voicelock::Verdict;
-    let verdict = ctx.voice.offer(&stream.segment.samples);
-    publish_voice_state(ctx.settings, ctx.voice);
-    match verdict {
-        Verdict::Pass | Verdict::Accept(_) => true,
-        Verdict::Enrolling(_) => false,
-        Verdict::Enrolled(segments) => {
-            emit(ctx.tx, TranscriptEvent::VoiceLocked(segments));
-            false
-        }
-        Verdict::Reject(score) => {
-            debug!(score, "not your voice; dropped");
-            emit(ctx.tx, TranscriptEvent::VoiceRejected(score));
-            false
-        }
-    }
-}
-
 /// Session control, recording, and mode routing for one finalized utterance.
-fn handle_final(source: Source, trimmed: &str, mode: TranscribeMode, ctx: &mut Ctx<'_>) {
+fn handle_final(
+    source: Source,
+    trimmed: &str,
+    mode: TranscribeMode,
+    mine: bool,
+    ctx: &mut Ctx<'_>,
+) {
+    // `may_command` is about the audio *source*; `mine` is about the voice in
+    // it. A meeting never commands, and neither does somebody standing behind
+    // you — but only the second one still reaches the transcript.
+    let may_act = source.may_command() && mine;
     // M7.1: session control is checked before mode routing, so "grava" works
     // from any mode — but only from the microphone. A meeting that happens to
     // say the stop word must not close your recording.
-    if source.may_command() && session_control(source, trimmed, ctx) {
+    if may_act && session_control(source, trimmed, ctx) {
         return;
     }
 
@@ -328,8 +312,10 @@ fn handle_final(source: Source, trimmed: &str, mode: TranscribeMode, ctx: &mut C
     }
 
     // Audio from a meeting is transcribed and nothing more: never typed, never
-    // dispatched to the window manager.
-    if !source.may_command() {
+    // dispatched to the window manager. Same for a voice the lock did not
+    // recognise — the difference is that this one is still on screen, so a bar
+    // that judged wrong costs a keystroke rather than a sentence.
+    if !may_act {
         return;
     }
     commands::route_final(
@@ -379,3 +365,7 @@ mod tests;
 #[path = "session_control.rs"]
 mod session_control;
 use session_control::{session_control, start_session, stop_session};
+
+#[path = "voice_gate.rs"]
+mod voice_gate;
+use voice_gate::{publish_voice_state, voice_check, VoiceCheck};
