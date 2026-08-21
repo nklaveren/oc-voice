@@ -239,13 +239,17 @@ impl OverlayApp {
                     // Emoji come from egui's emoji font; the arrow and return
                     // symbols did not, and rendered as empty boxes.
                     let current_mode = self.settings.lock().unwrap().mode;
+                    // Named for what you are doing, not for where the audio
+                    // comes from. "System audio" described the plumbing; the
+                    // two modes actually differ by whether you are talking to
+                    // the machine or following a room.
                     let mode_label = match current_mode {
-                        TranscribeMode::Enter => "\u{1f3a4} Microfone",
+                        TranscribeMode::Enter => "\u{1f3a4} Agent",
                         // No target language in the label: whether a
                         // translation appears depends on the model being
                         // installed, and a label that promises one when none
                         // is loaded is worse than no label.
-                        TranscribeMode::Translate => "\u{1f310} Áudio do sistema",
+                        TranscribeMode::Translate => "\u{1f310} Meeting",
                     };
                     // Tinted with the same colour the transcript uses for that
                     // speaker, so the button and the text it produces agree

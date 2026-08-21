@@ -30,8 +30,12 @@ listened to.
 
 | Mode | What it does |
 |---|---|
-| **Microphone** | Your speech accumulates as text until a send word; a short utterance the window grammar recognises navigates instead of being written down |
-| **System audio** | A call or a video, subtitled — and translated for display when a model is installed. The microphone stays on, so a recording holds both sides |
+| **Agent** | Your speech accumulates as text until a send word; a short utterance the window grammar recognises navigates instead of being written down |
+| **Meeting** | A call or a video, subtitled — and translated for display when a model is installed. The microphone stays on, so a recording holds both sides |
+
+They are named for what you are doing, not for where the audio comes from.
+"System audio" described the plumbing; the difference that matters is whether
+you are talking to the machine or following a room.
 
 There were four. `Input` typed each utterance where `Enter` accumulated them —
 same source, same grammar, one word apart — and `Command` dispatched window
@@ -50,7 +54,7 @@ resolve, to the mode that absorbed them.
 | "câmbio" / "envia" / "enviar" / "manda" / "pronto" / "pode enviar" | send the buffered text |
 | "cancela" / "limpar" / "descarta" / "apaga" / "esquece" | discard the buffer |
 | "ajuda" / "comandos" | list what can be said, built from the live vocabulary |
-| "modo microfone" / "modo reunião" | switch mode without touching the overlay |
+| "modo agente" / "modo reunião" | switch mode without touching the overlay |
 | "grava" / "encerra" | open and close a recorded session |
 | "nova linha" / "pula linha" | line break |
 | "envia para \<alvo\>" | send buffer to a window ("navegador", "terminal", "teams"…) |

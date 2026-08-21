@@ -127,9 +127,13 @@ dez = 10
 "modo texto" = "enter"
 "modo comando" = "enter"
 "modo mensagem" = "enter"
+# O rótulo do overlay é "Agent"; a frase falada acompanha, sem tirar as
+# antigas — trocar o nome de um modo não pode calar quem já dizia o outro.
+"modo agente" = "enter"
 "modo reunião" = "translate"
 "modo legenda" = "translate"
 "modo sistema" = "translate"
+"modo meeting" = "translate"
 
 [pt.directions]
 direita = "r"
@@ -334,6 +338,7 @@ ten = 10
 "dictation mode" = "enter"
 "command mode" = "enter"
 "message mode" = "enter"
+"agent mode" = "enter"
 "meeting mode" = "translate"
 "subtitle mode" = "translate"
 "system mode" = "translate"

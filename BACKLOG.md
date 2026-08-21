@@ -10,7 +10,7 @@ Item concluído leva **✅ e o hash do commit** no título. Ao terminar um item,
 
 O pipeline de áudio funciona: cpal → rubato 16 kHz → ring buffer → silero VAD → whisper `large-v3-turbo` Q8 em CUDA, com parciais a cada ~800 ms e final no silêncio. O overlay egui flutua e fixa via `hyprctl`. A injeção de texto via `wtype` funciona.
 
-**Dois modos, não quatro** (M4.5): `Enter` é o seu microfone — junta o texto e despacha comando de janela na mesma fala — e `Translate` legenda o áudio do sistema sem desligar o microfone, então a ata guarda os dois lados. `Input` e `Command` existiram e foram absorvidos; as frases faladas deles ainda resolvem.
+**Dois modos, não quatro** (M4.5) — **Agent** e **Meeting**, nomeados pelo que se está fazendo e não pela origem do áudio: `Enter` é o seu microfone — junta o texto e despacha comando de janela na mesma fala — e `Translate` legenda o áudio do sistema sem desligar o microfone, então a ata guarda os dois lados. `Input` e `Command` existiram e foram absorvidos; as frases faladas deles ainda resolvem.
 
 O que trava a evolução é o reconhecimento de comando: igualdade exata de string contra tabelas chumbadas. O caminho de LLM que existia — escrito e nunca ligado — foi removido em M0.1.
 

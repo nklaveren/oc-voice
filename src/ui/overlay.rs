@@ -133,7 +133,7 @@ fn open_session_file(runner: &Arc<dyn CommandRunner>, path: &str) {
 fn mode_hint(mode: TranscribeMode) -> &'static str {
     match mode {
         TranscribeMode::Enter => "sua voz: junta o texto e navega",
-        TranscribeMode::Translate => "áudio do sistema: legenda e traduz",
+        TranscribeMode::Translate => "a reunião: legenda e traduz",
     }
 }
 
