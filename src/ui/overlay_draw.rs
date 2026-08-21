@@ -7,7 +7,7 @@
 use super::*;
 
 impl OverlayApp {
-    pub(super) fn draw(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    pub(super) fn draw(&mut self, ui: &mut egui::Ui) {
         let panel_size = ui.available_size();
         let bg = egui::Frame::new()
             .fill(egui::Color32::from_black_alpha(200))

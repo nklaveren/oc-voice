@@ -1,12 +1,17 @@
 use crate::process::CommandRunner;
-use crate::wm::hyprland::try_hyprland_float;
+use crate::ui::host::{EframeHost, Flow, Geometry, OverlayHost, OverlayUi};
 use crate::{AppSettings, TranscribeMode, TranscriptEvent};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use crossbeam_channel::Receiver;
 use eframe::egui;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+
+/// Logical size of the overlay, and the gap it keeps from the bottom edge.
+/// Shared with the positioning correction so the two cannot disagree.
+pub const OVERLAY_W: f32 = 900.0;
+pub const OVERLAY_H: f32 = 350.0;
+pub const OVERLAY_BOTTOM_MARGIN: f32 = 60.0;
 
 pub fn run_overlay(
     rx: Receiver<TranscriptEvent>,
@@ -15,34 +20,20 @@ pub fn run_overlay(
     runner: Arc<dyn CommandRunner>,
     config: Arc<crate::config::Config>,
 ) -> Result<()> {
-    let viewport = egui::ViewportBuilder::default()
-        .with_title("oc-voice")
-        .with_app_id("oc-voice")
-        .with_inner_size([900.0, 350.0])
-        .with_decorations(false)
-        .with_transparent(true)
-        .with_always_on_top()
-        .with_resizable(true);
-
-    let options = eframe::NativeOptions {
-        viewport,
-        ..Default::default()
-    };
-
-    try_hyprland_float(runner.clone(), config.overlay_monitor().to_string());
-
-    eframe::run_native(
-        "oc-voice",
-        options,
-        Box::new(|_cc| {
-            Ok(Box::new(OverlayApp::new(
-                rx, running, settings, config, runner,
-            )))
-        }),
-    )
-    .map_err(|e| anyhow!("eframe error: {e}"))?;
-
-    Ok(())
+    // Which surface the overlay lives on, and what that costs to keep in
+    // place, are the host's business — not this function's and not the UI's.
+    let host: Box<dyn OverlayHost> = Box::new(EframeHost {
+        geometry: Geometry {
+            width: OVERLAY_W,
+            height: OVERLAY_H,
+            bottom_margin: OVERLAY_BOTTOM_MARGIN,
+        },
+        runner: runner.clone(),
+        monitor: config.overlay_monitor().to_string(),
+    });
+    host.run(Box::new(OverlayApp::new(
+        rx, running, settings, config, runner,
+    )))
 }
 
 struct OverlayApp {
@@ -202,30 +193,29 @@ mod events;
 #[path = "overlay_draw.rs"]
 mod draw;
 
-impl eframe::App for OverlayApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        // fully transparent background; we draw our own panel on top
+impl OverlayUi for OverlayApp {
+    fn tick(&mut self) -> Flow {
+        // Drain all pending transcription events before painting.
+        self.drain_events();
+        // The pipeline signals shutdown by clearing this; how a window closes
+        // is the host's business.
+        if self.running.load(Ordering::SeqCst) {
+            Flow::Continue
+        } else {
+            Flow::Exit
+        }
+    }
+
+    fn paint(&mut self, ui: &mut egui::Ui) {
+        self.draw(ui);
+    }
+
+    fn clear_color(&self) -> [f32; 4] {
+        // Fully transparent; the panel we draw is the only opaque thing.
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Drain all pending transcription events before painting the UI.
-        self.drain_events();
-
-        // If the pipeline has signalled shutdown, close the window.
-        if !self.running.load(Ordering::SeqCst) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
-
-        // Repaint periodically so new events show up even without user input.
-        ctx.request_repaint_after(Duration::from_millis(50));
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        self.draw(ui, frame);
-    }
-
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         self.running.store(false, Ordering::SeqCst);
     }
 }
