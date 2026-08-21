@@ -55,6 +55,7 @@ pub trait OverlayHost {
 }
 
 /// Requested geometry, in logical pixels.
+#[derive(Debug, Clone, Copy)]
 pub struct Geometry {
     pub width: f32,
     pub height: f32,

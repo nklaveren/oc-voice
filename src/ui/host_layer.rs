@@ -61,6 +61,7 @@ pub struct LayerShellHost {
 
 impl OverlayHost for LayerShellHost {
     fn run(self: Box<Self>, ui: Box<dyn OverlayUi>) -> Result<()> {
+        let geom = self.geometry;
         let conn = Connection::connect_to_env().context("connecting to the Wayland display")?;
         let (globals, mut queue) = registry_queue_init(&conn)?;
         let qh = queue.handle();
@@ -74,12 +75,17 @@ impl OverlayHost for LayerShellHost {
             registry: RegistryState::new(&globals),
             output: OutputState::new(&globals, &qh),
             seat: SeatState::new(&globals, &qh),
+            compositor,
+            shell,
+            geometry: geom,
+            want_monitor: self.monitor,
+            rebuild: false,
             layer: None,
             pointer: None,
             gl: None,
             egui: egui::Context::default(),
             ui,
-            size: (self.geometry.width as u32, self.geometry.height as u32),
+            size: (geom.width as u32, geom.height as u32),
             scale: 1.0,
             events: Vec::new(),
             cursor: None,
@@ -90,36 +96,14 @@ impl OverlayHost for LayerShellHost {
         // it lands on is a creation argument, not something to fix afterwards.
         // That is the difference from the toplevel host in one line.
         queue.roundtrip(&mut state)?;
-        let output = pick_output(&state.output, &self.monitor);
-        if let Some(ref o) = output {
-            info!(monitor = ?state.output.info(o).and_then(|i| i.name), "overlay output chosen");
-        } else {
-            warn!(want = %self.monitor, "no output matched; letting the compositor choose");
-        }
-
-        let surface = compositor.create_surface(&qh);
-        let layer = shell.create_layer_surface(
-            &qh,
-            surface,
-            // Overlay, not Top: this sits above fullscreen windows, which is
-            // where a subtitle for a meeting belongs.
-            Layer::Overlay,
-            Some(NAMESPACE),
-            output.as_ref(),
-        );
-        layer.set_anchor(Anchor::BOTTOM);
-        layer.set_size(self.geometry.width as u32, self.geometry.height as u32);
-        layer.set_margin(0, 0, self.geometry.bottom_margin as i32, 0);
-        // Never take the keyboard. The whole reason `nofocus` had to be a
-        // window rule is that a toplevel takes focus by default and dictated
-        // text then lands in the overlay instead of the window being written
-        // to. Here it is one declared value.
-        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-        layer.commit();
-        state.layer = Some(layer);
+        state.build_surface(&qh);
 
         while !state.exit {
             queue.blocking_dispatch(&mut state)?;
+            if state.rebuild {
+                state.rebuild = false;
+                state.build_surface(&qh);
+            }
         }
         state.ui.on_exit();
         Ok(())
@@ -154,6 +138,14 @@ struct State {
     registry: RegistryState,
     output: OutputState,
     seat: SeatState,
+    /// Kept so the surface can be built more than once. A layer surface is
+    /// bound to an output, and an output that goes away takes the surface
+    /// with it — see `closed`.
+    compositor: CompositorState,
+    shell: LayerShell,
+    geometry: Geometry,
+    want_monitor: String,
+    rebuild: bool,
     layer: Option<LayerSurface>,
     pointer: Option<wl_pointer::WlPointer>,
     gl: Option<Gl>,
@@ -218,9 +210,59 @@ impl State {
     }
 }
 
+impl State {
+    /// Create the layer surface on the output the config asks for.
+    ///
+    /// Called again whenever the compositor closes the surface, which is not
+    /// an error condition: a layer surface belongs to one output, so unplugging
+    /// a monitor — or a DPMS transition, which is how this was found — destroys
+    /// it. A toplevel survives that because the compositor just moves the
+    /// window. Treating it as fatal made a screen blink take the whole app
+    /// down, transcription included.
+    fn build_surface(&mut self, qh: &QueueHandle<Self>) {
+        // The EGL surface holds the old wl_surface; it has to go first.
+        self.gl = None;
+        self.layer = None;
+
+        let output = pick_output(&self.output, &self.want_monitor);
+        match output {
+            Some(ref o) => {
+                info!(monitor = ?self.output.info(o).and_then(|i| i.name), "overlay output chosen")
+            }
+            None => warn!(want = %self.want_monitor, "no output matched; compositor chooses"),
+        }
+
+        let surface = self.compositor.create_surface(qh);
+        let layer = self.shell.create_layer_surface(
+            qh,
+            surface,
+            // Overlay, not Top: this sits above fullscreen windows, which is
+            // where a subtitle for a meeting belongs.
+            Layer::Overlay,
+            Some(NAMESPACE),
+            output.as_ref(),
+        );
+        layer.set_anchor(Anchor::BOTTOM);
+        layer.set_size(self.geometry.width as u32, self.geometry.height as u32);
+        layer.set_margin(0, 0, self.geometry.bottom_margin as i32, 0);
+        // Never take the keyboard. The whole reason `nofocus` had to be a
+        // window rule is that a toplevel takes focus by default and dictated
+        // text then lands in the overlay instead of the window being written
+        // to. Here it is one declared value.
+        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        layer.commit();
+        self.layer = Some(layer);
+    }
+}
+
 impl LayerShellHandler for State {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) {
-        self.exit = true;
+        // Not fatal, and measured: waking the monitors with `dpms on` made
+        // HDMI-A-1 disappear and come back, the compositor destroyed the
+        // surface, and the whole process exited cleanly with the recording
+        // still open. Rebuild instead.
+        warn!("layer surface closed by the compositor; rebuilding");
+        self.rebuild = true;
     }
 
     fn configure(
