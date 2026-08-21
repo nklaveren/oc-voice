@@ -55,6 +55,11 @@ pub enum WmAction {
     FocusWindow {
         address: String,
     },
+    /// Start something that is not running. The command comes from the
+    /// desktop's own `.desktop` files, never from this repo — see `launch.rs`.
+    Launch {
+        command: String,
+    },
 }
 
 /// One monitor, in the layout's own logical coordinates.
@@ -124,6 +129,12 @@ impl Hyprctl {
             }
             WmAction::FocusMonitor { name } => {
                 vec![s("dispatch"), s("focusmonitor"), name.clone()]
+            }
+            // The window manager starts it, not this process: a child of the
+            // voice daemon dies with the daemon, and inherits its stdio and
+            // its environment. `exec` hands it to the session instead.
+            WmAction::Launch { command } => {
+                vec![s("dispatch"), s("exec"), command.clone()]
             }
             WmAction::FocusWindow { address } => {
                 vec![

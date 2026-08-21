@@ -416,6 +416,13 @@ action = "move_to_workspace"
 pattern = "go to {alvo}"
 action = "focus_window"
 
+# "open X" was missing on this side: English could only reach a window that
+# already existed. Same action as "go to" — it looks for the window, then the
+# tab, then starts it.
+[[en.templates]]
+pattern = "open {alvo}"
+action = "focus_window"
+
 [[en.templates]]
 pattern = "show {alvo}"
 action = "focus_window"

@@ -105,6 +105,7 @@ en  up window                -> dispatch movefocus u
 en  workspace 3              -> dispatch workspace 3
 en  move to 3                -> dispatch movetoworkspace 3
 en  go to brave              -> dispatch focuswindow address:0xb1
+en  open brave               -> dispatch focuswindow address:0xb1
 en  show brave               -> dispatch focuswindow address:0xb1
 en  focus brave              -> dispatch focuswindow address:0xb1
 en  close brave              -> (confirma)

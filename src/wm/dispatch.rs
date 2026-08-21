@@ -19,6 +19,7 @@ use crate::config::{Config, LangVocab};
 use crate::process::CommandRunner;
 use crate::ui::stdout::emit;
 use crate::wm::backend::{Hyprctl, MonitorInfo, WmAction, WmBackend};
+use crate::wm::launch;
 use crate::wm::tabs;
 use crate::wm::target;
 use crate::TranscriptEvent;
@@ -293,7 +294,19 @@ fn dispatch_args(
             // in a tab is invisible from here — which is how most people keep
             // most things. Windows first, because a real window is a stronger
             // answer than a page inside one.
-            focus_browser_tab(spoken, config, runner)?
+            //
+            // And if it is nowhere at all, start it. "Abre o Outlook" with
+            // nothing open used to do nothing, correctly and uselessly: there
+            // was no window to focus and no third step. Last, not first — an
+            // open thing is always the better answer than a second copy of it.
+            match focus_browser_tab(spoken, config, runner) {
+                Some(act) => act,
+                None => WmAction::Launch {
+                    command: launch::resolve(spoken, &launch::installed(), threshold)?
+                        .command
+                        .clone(),
+                },
+            }
         }
         _ => return None,
     };
