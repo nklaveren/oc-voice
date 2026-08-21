@@ -220,6 +220,12 @@ fn execute_action(
         });
         return true;
     }
+    // Page actions act on the browser, not the compositor, so there is no
+    // hyprctl argument list to build — they carry out their own effect and
+    // report whether anything happened.
+    if let Some(done) = crate::wm::page::act_on_focused(action, slot, config, runner, tx) {
+        return done;
+    }
     if let Some(args) = dispatch_args(action, slot, vocab, config, runner) {
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         run_dispatch(runner, tx, &refs);

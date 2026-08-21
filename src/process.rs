@@ -4,6 +4,17 @@ use std::process::{Child, Output, Stdio};
 pub trait CommandRunner: Send + Sync {
     fn output(&self, program: &str, args: &[&str]) -> io::Result<Output>;
     fn spawn_piped(&self, program: &str, args: &[&str]) -> io::Result<Child>;
+
+    /// Whether effects must be described rather than carried out.
+    ///
+    /// Everything reaching the world through `output` is already guarded, but
+    /// not everything goes through it: the page module speaks WebSocket
+    /// directly, and a socket is not a subprocess. Without this the probe
+    /// would click things while explaining what it would click — the same
+    /// trap `curl .../json/activate` fell into.
+    fn dry_run(&self) -> bool {
+        false
+    }
 }
 
 /// Reads through to the real system, refuses anything that would change it.
@@ -51,6 +62,10 @@ impl DryRunRunner {
 }
 
 impl CommandRunner for DryRunRunner {
+    fn dry_run(&self) -> bool {
+        true
+    }
+
     fn output(&self, program: &str, args: &[&str]) -> io::Result<Output> {
         if Self::is_mutating(program, args) {
             if let Ok(mut g) = self.blocked.lock() {

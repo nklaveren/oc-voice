@@ -33,6 +33,10 @@ pub struct Tab {
     pub title: String,
     #[serde(default, rename = "type")]
     pub kind: String,
+    /// The per-page debugger socket. Listing and raising a tab need only the
+    /// two GETs above; asking the page what is on it needs this (`page.rs`).
+    #[serde(default, rename = "webSocketDebuggerUrl")]
+    pub debugger: String,
 }
 
 fn endpoint(port: u16, path: &str) -> String {

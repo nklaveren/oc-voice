@@ -47,6 +47,10 @@ toml = "0.8"
 ct2rs = "0.9"
 # session timestamps (M7.1)
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# CDP over WebSocket, for asking a page what is on it. No TLS: the endpoint
+# is a loopback port the user opened themselves, and pulling rustls in for
+# 127.0.0.1 would be the largest dependency in the tree for nothing.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 # string similarity for the command matcher (Jaro-Winkler) — M1.1
 strsim = "0.11"
 # overlay GUI (floating subtitle-style window)

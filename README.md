@@ -70,6 +70,19 @@ resolve, to the mode that absorbed them.
 | "tela cheia" / "flutuante" | fullscreen / toggle floating |
 | "fecha" → "confirma" | close the focused window (always asks first) |
 | "fecha o \<alvo\>" → "confirma" | close the window you name, not the focused one |
+| "clica em \<alvo\>" | click a control in the focused page, by its label |
+| "campo \<alvo\>" / "escreve em \<alvo\>" | put the caret in a field, by its label |
+
+The last two only work inside a browser, and only with `debug_port` set. They
+ask the page rather than reading pixels: the DOM knows what is a control, where
+it is, and what it is called, so there is no OCR, no screenshot, and the real
+cursor never moves.
+
+They act only when exactly one control answers. Measured on a live mailbox:
+134 controls, 89 with a name a person could say, 45 icon-only — and "reply"
+matched **eight** of them. Clicking the wrong one has no undo and, unlike a
+misplaced window command, nothing on screen tells you it happened. So an
+ambiguous word reports the count and the candidates instead of picking.
 
 ### Keybindings
 

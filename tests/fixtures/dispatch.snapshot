@@ -72,6 +72,12 @@ pt  fecha a brave            -> (confirma)
 pt  fecha brave              -> (confirma)
 pt  fechar o brave           -> (confirma)
 pt  fechar brave             -> (confirma)
+pt  clica em brave           -> (nada)
+pt  clica no brave           -> (nada)
+pt  clica na brave           -> (nada)
+pt  clica brave              -> (nada)
+pt  campo brave              -> (nada)
+pt  escreve em brave         -> (nada)
 en  close window             -> (confirma)
 en  floating                 -> dispatch togglefloating
 en  full screen              -> dispatch fullscreen
@@ -102,3 +108,5 @@ en  go to brave              -> dispatch focuswindow address:0xb1
 en  show brave               -> dispatch focuswindow address:0xb1
 en  focus brave              -> dispatch focuswindow address:0xb1
 en  close brave              -> (confirma)
+en  click brave              -> (nada)
+en  field brave              -> (nada)

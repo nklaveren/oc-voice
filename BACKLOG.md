@@ -665,6 +665,32 @@ Se 18 de 20 amostras disserem o mesmo nome enquanto um cluster fala, o cluster �
 
 **Aceite:** com um recap tocando, `ocr watch` na faixa do nome produz uma sequência de nomes que muda quando o falante muda. O limiar de confiança abaixo do qual a leitura é descartada é **medido contra o recap, não chutado** — como M5.4 fez com latência e M1.1 com o matcher.
 
+### M7.4b — Agir dentro da página, via CDP ✅ parcial
+
+"Como fazer o modo agent clicar em tal lugar?" A resposta dentro do navegador não é OCR.
+
+O [`tabs.rs`](src/wm/tabs.rs) fala com o browser por dois GETs e para aí de propósito. Listar e levantar aba cabem numa URL; perguntar *o que dá pra clicar e onde* não cabe — precisa de `Runtime.evaluate`, que precisa do WebSocket que o DevTools entrega por página. Entrou `tungstenite` sem TLS: o endpoint é uma porta de loopback que o próprio usuário abriu, e puxar rustls para `127.0.0.1` seria a maior dependência da árvore por nada.
+
+**Medido numa caixa de e-mail real:**
+
+```
+134 controles clicáveis, 89 nomeáveis por voz, 45 só glifo de ícone
+calendar -> 1 candidato      reply -> 8 candidatos      spotify -> 0
+foco após "campo search" -> "Search for email, meetings, files and more."
+```
+
+Contra OCR, dentro do navegador: o DOM **sabe** o que é controle, onde está e como se chama; OCR lê pixels a ~2,5 s por olhada, não distingue botão de parágrafo, e lê os 45 glifos de ícone como nada. Aqui eles ao menos são *conhecidos*. E `element.focus()` resolve "focar um input" sem coordenada nenhuma — o cursor real nem se mexe.
+
+**Só dispara com exatamente um candidato.** `reply` casou com oito. Clicar no errado não tem desfazer *e não tem aviso* — diferente de um comando de janela, nada na tela diz o que aconteceu. Palavra ambígua reporta a contagem e os nomes.
+
+Rótulo de controle é texto arbitrário, então ganha a mesma barra 0.90 e o mesmo piso de token que título de janela e de aba. Medido: a 0.82, "search" também casava com *"Assign an archive or retention policy to automatically archive"*.
+
+`CommandRunner` ganhou `dry_run()`. O `Page` fala socket direto, e socket não é subprocesso — sem isso a sonda clicaria enquanto explicava o que clicaria, exatamente a armadilha do `curl .../json/activate`.
+
+**Falta:** iframes e shadow DOM (o `querySelectorAll` não atravessa nenhum dos dois), e uma forma de escolher entre candidatos em vez de recusar.
+
+---
+
 ### M7.3 — Separar fonte de tarefa
 
 `TranscribeMode` tem quatro valores que codificam combinações de duas dimensões, e por isso "gravar a reunião" e "traduzir a reunião" não podem coexistir. Trocar por dois eixos:

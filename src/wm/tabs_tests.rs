@@ -80,6 +80,7 @@ fn activating_names_the_tab_it_was_given() {
         id: "B2".into(),
         title: "WhatsApp".into(),
         kind: "page".into(),
+        debugger: String::new(),
     };
     activate(&runner, 9222, &tab);
     assert!(

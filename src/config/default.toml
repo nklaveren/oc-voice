@@ -290,6 +290,36 @@ action = "close_window"
 pattern = "fechar {alvo}"
 action = "close_window"
 
+# Agir DENTRO da página, não sobre a janela. O navegador sabe o que é botão e
+# onde ele está; OCR só enxerga pixels. Só dispara quando há exatamente um
+# candidato — "reply" aparecia três vezes numa página só, e clicar no errado
+# não tem desfazer nem aviso.
+[[pt.templates]]
+pattern = "clica em {alvo}"
+action = "click_text"
+
+[[pt.templates]]
+pattern = "clica no {alvo}"
+action = "click_text"
+
+[[pt.templates]]
+pattern = "clica na {alvo}"
+action = "click_text"
+
+[[pt.templates]]
+pattern = "clica {alvo}"
+action = "click_text"
+
+# Focar um campo é o que realmente se quer ao "clicar num input", e não
+# precisa de coordenada nenhuma.
+[[pt.templates]]
+pattern = "campo {alvo}"
+action = "focus_field"
+
+[[pt.templates]]
+pattern = "escreve em {alvo}"
+action = "focus_field"
+
 [pt.targets]
 navegador = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]
 terminal = ["alacritty", "kitty", "foot", "wezterm", "ghostty"]
@@ -397,6 +427,14 @@ action = "focus_window"
 [[en.templates]]
 pattern = "close {alvo}"
 action = "close_window"
+
+[[en.templates]]
+pattern = "click {alvo}"
+action = "click_text"
+
+[[en.templates]]
+pattern = "field {alvo}"
+action = "focus_field"
 
 [en.targets]
 browser = ["firefox", "brave", "chromium", "chrome", "zen", "vivaldi"]
