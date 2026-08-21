@@ -337,9 +337,12 @@ impl OverlayApp {
                     // controls you reach for during a call as the row allows —
                     // it is the one button here that ends the session.
                     //
-                    // Nothing is lost to a misclick: the record is written as
-                    // the session runs, and clearing `running` is the same
-                    // shutdown the pipeline itself asks for.
+                    // Clearing `running` is the same shutdown the pipeline
+                    // itself asks for, and a recorded session loses nothing —
+                    // its file is written as the session runs. What a misclick
+                    // *does* cost is the send buffer: the lines held back
+                    // waiting for the keyword exist nowhere else. There were
+                    // 47 of them the first time this button was pressed.
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         style_controls(ui);
                         // ASCII, for the third time in this file: U+2715 drew
