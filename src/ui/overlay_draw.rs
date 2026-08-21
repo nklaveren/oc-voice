@@ -7,9 +7,12 @@
 use super::*;
 
 /// Text on a filled button, dark enough to read on any of the accents.
-const INK: egui::Color32 = egui::Color32::from_rgb(20, 20, 24);
+pub(super) const INK: egui::Color32 = egui::Color32::from_rgb(20, 20, 24);
 /// The only irreversible control in the row.
-const DANGER: egui::Color32 = egui::Color32::from_rgb(235, 85, 85);
+pub(super) const DANGER: egui::Color32 = egui::Color32::from_rgb(235, 85, 85);
+/// Teams' own light accent, the one it uses on dark surfaces. Its brand
+/// purple sits too close to this panel to read as a colour at all.
+const MEETING_COLOR: egui::Color32 = egui::Color32::from_rgb(123, 131, 235);
 
 /// Pill buttons for the control row.
 ///
@@ -20,7 +23,7 @@ const DANGER: egui::Color32 = egui::Color32::from_rgb(235, 85, 85);
 /// The values are chosen against a translucent dark panel — flat fills would
 /// disappear into it, so each state separates by luminance rather than hue,
 /// and every widget keeps a hairline so its edge survives a bright wallpaper.
-fn style_controls(ui: &mut egui::Ui) {
+pub(super) fn style_controls(ui: &mut egui::Ui) {
     let radius = egui::CornerRadius::same(9);
     let w = &mut ui.style_mut().visuals.widgets;
     for (state, fill, stroke) in [
@@ -236,127 +239,134 @@ impl OverlayApp {
                 // Control row: always the last thing drawn, always inside the
                 // panel because the scroll area above it is bounded.
                 ui.horizontal(|ui| {
-                    style_controls(ui);
-                    if ui.button("\u{2699} Settings").clicked() {
-                        self.set_settings_open(!self.show_settings);
-                    }
-
-                    // Starting and stopping were spoken-only, which fails in
-                    // both directions during a call: saying the stop word out
-                    // loud announces that you were recording, and in a silent
-                    // room there is no utterance to carry the command at all.
-                    let recording = self.recording.is_some();
-                    // No glyph: ● and ■ live in the same block as the ◯ that
-                    // already rendered as an empty box. Colour carries it —
-                    // and while recording it carries it as a filled button,
-                    // not just tinted text, because that is the one state
-                    // nobody should have to read twice.
-                    let record = if recording {
-                        egui::Button::new(egui::RichText::new("Parar").color(INK).strong())
-                            .fill(DANGER)
-                    } else {
-                        egui::Button::new(egui::RichText::new("Gravar"))
-                    };
-                    if ui.add(record).clicked() {
-                        let request = if recording {
-                            crate::SessionRequest::Stop
-                        } else {
-                            crate::SessionRequest::Start
-                        };
-                        // The pipeline thread owns the session; this only asks.
-                        crate::lock_settings(&self.settings).session_request = Some(request);
-                    }
-
-                    // Opening the record is only useful because the file is
-                    // written as the session runs; before that there was
-                    // nothing on disk to open until someone said the stop word.
-                    let session = self.session_path.clone();
-                    let button =
-                        ui.add_enabled(session.is_some(), egui::Button::new("\u{1f4c4} Ata"));
-                    if let Some(ref path) = session {
-                        button.clone().on_hover_text(path.as_str());
-                        if button.clicked() {
-                            open_session_file(&self.runner, path);
-                        }
-                    }
-
-                    // Emoji come from egui's emoji font; the arrow and return
-                    // symbols did not, and rendered as empty boxes.
-                    let current_mode = self.settings.lock().unwrap().mode;
-                    // Named for what you are doing, not for where the audio
-                    // comes from. "System audio" described the plumbing; the
-                    // two modes actually differ by whether you are talking to
-                    // the machine or following a room.
-                    let mode_label = match current_mode {
-                        TranscribeMode::Enter => "\u{1f3a4} Agent",
-                        // No target language in the label: whether a
-                        // translation appears depends on the model being
-                        // installed, and a label that promises one when none
-                        // is loaded is worse than no label.
-                        TranscribeMode::Translate => "\u{1f310} Meeting",
-                    };
-                    // Tinted with the same colour the transcript uses for that
-                    // speaker, so the button and the text it produces agree
-                    // without a legend.
-                    let accent = speaker_color(match current_mode {
-                        TranscribeMode::Enter => crate::Source::Mic,
-                        TranscribeMode::Translate => crate::Source::System,
-                    });
-                    let mode_button =
-                        egui::Button::new(egui::RichText::new(mode_label).color(accent).strong())
-                            .fill(accent.gamma_multiply(0.14))
-                            .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.5)));
-                    if ui.add(mode_button).clicked() {
-                        let mut s = self.settings.lock().unwrap();
-                        s.mode = s.mode.next();
-                    }
-                    // Always visible, not only while the scrollback is empty:
-                    // forgetting what a mode does happens mid-session, which
-                    // is exactly when an empty-state hint is gone.
-                    ui.label(
-                        egui::RichText::new(mode_hint(current_mode))
-                            .color(egui::Color32::from_gray(130))
-                            .italics()
-                            .size(13.0),
-                    );
-
-                    if self.buffered > 0 {
-                        ui.label(
-                            egui::RichText::new(match self.send_word() {
-                                Some(w) => format!(
-                                    "{} line(s) buffered \u{2014} say \"{w}\" to send",
-                                    self.buffered
-                                ),
-                                None => format!("{} line(s) buffered", self.buffered),
-                            })
-                            .color(egui::Color32::from_rgb(255, 200, 80))
-                            .size(14.0),
-                        );
-                    }
-                    // Closing. Pinned to the right edge, as far from the
-                    // controls you reach for during a call as the row allows —
-                    // it is the one button here that ends the session.
+                    // Closing. Pinned to the right edge, as far from the controls
+                    // you reach for during a call as the row allows — and laid
+                    // out *before* them, because at the narrowest width the
+                    // sliders allow the row overflows, and what gets pushed off
+                    // has to be the mode hint rather than the only way out.
                     //
-                    // Clearing `running` is the same shutdown the pipeline
-                    // itself asks for, and a recorded session loses nothing —
-                    // its file is written as the session runs. What a misclick
-                    // *does* cost is the send buffer: the lines held back
-                    // waiting for the keyword exist nowhere else. There were
-                    // 47 of them the first time this button was pressed.
+                    // A recorded session loses nothing to it: its file is written
+                    // as the session runs. The send buffer does — the lines held
+                    // back waiting for the keyword exist nowhere else — which is
+                    // what the confirmation in there is for.
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        style_controls(ui);
-                        // ASCII, for the third time in this file: U+2715 drew
-                        // an empty box, exactly as the record dot and the
-                        // translation arrow did. Red ink rather than a red
-                        // fill, unlike `Parar` — that one reports a *state*
-                        // nobody should have to read twice, this one is an
-                        // action, and a fixed fill is the one thing that
-                        // cannot show it is under the pointer.
-                        let quit =
-                            egui::Button::new(egui::RichText::new(" X ").color(DANGER).strong());
-                        if ui.add(quit).on_hover_text("encerrar").clicked() {
-                            self.running.store(false, Ordering::SeqCst);
-                        }
+                        self.quit_control(ui);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            // At the narrowest the sliders allow, this half
+                            // overflows. Clipped, it overflows *out of sight*
+                            // instead of over the close control, where it
+                            // would silently take its presses: an
+                            // `interact_rect` is intersected with the clip
+                            // rect, so this is a hit-testing statement as much
+                            // as a visual one.
+                            let room = ui.max_rect();
+                            ui.shrink_clip_rect(room);
+                            style_controls(ui);
+                            if ui.button("\u{2699} Settings").clicked() {
+                                self.set_settings_open(!self.show_settings);
+                            }
+
+                            // Starting and stopping were spoken-only, which fails in
+                            // both directions during a call: saying the stop word out
+                            // loud announces that you were recording, and in a silent
+                            // room there is no utterance to carry the command at all.
+                            let recording = self.recording.is_some();
+                            // No glyph: ● and ■ live in the same block as the ◯ that
+                            // already rendered as an empty box. Colour carries it —
+                            // and while recording it carries it as a filled button,
+                            // not just tinted text, because that is the one state
+                            // nobody should have to read twice.
+                            let record = if recording {
+                                egui::Button::new(egui::RichText::new("Parar").color(INK).strong())
+                                    .fill(DANGER)
+                            } else {
+                                egui::Button::new(egui::RichText::new("Gravar"))
+                            };
+                            if ui.add(record).clicked() {
+                                let request = if recording {
+                                    crate::SessionRequest::Stop
+                                } else {
+                                    crate::SessionRequest::Start
+                                };
+                                // The pipeline thread owns the session; this only asks.
+                                crate::lock_settings(&self.settings).session_request =
+                                    Some(request);
+                            }
+
+                            // Opening the record is only useful because the file is
+                            // written as the session runs; before that there was
+                            // nothing on disk to open until someone said the stop word.
+                            let session = self.session_path.clone();
+                            let button = ui
+                                .add_enabled(session.is_some(), egui::Button::new("\u{1f4c4} Ata"));
+                            if let Some(ref path) = session {
+                                button.clone().on_hover_text(path.as_str());
+                                if button.clicked() {
+                                    open_session_file(&self.runner, path);
+                                }
+                            }
+
+                            // Emoji come from egui's emoji font; the arrow and return
+                            // symbols did not, and rendered as empty boxes.
+                            let current_mode = self.settings.lock().unwrap().mode;
+                            // Named for what you are doing, not for where the audio
+                            // comes from. "System audio" described the plumbing; the
+                            // two modes actually differ by whether you are talking to
+                            // the machine or following a room.
+                            let mode_label = match current_mode {
+                                TranscribeMode::Enter => "\u{1f3a4} Agent",
+                                // No target language in the label: whether a
+                                // translation appears depends on the model being
+                                // installed, and a label that promises one when none
+                                // is loaded is worse than no label.
+                                TranscribeMode::Translate => "\u{1f310} Meeting",
+                            };
+                            // Your voice keeps the transcript's own green. The
+                            // meeting gets Teams' blue rather than the
+                            // transcript's white — the button names where the
+                            // audio comes from, and white on a button reads as
+                            // no colour chosen at all. The subtitles stay
+                            // white, because that is what holds up at speed
+                            // over whatever wallpaper is behind them.
+                            let accent = match current_mode {
+                                TranscribeMode::Enter => MIC_COLOR,
+                                TranscribeMode::Translate => MEETING_COLOR,
+                            };
+                            // Accent in the ink, not in the fill. A fixed fill and a
+                            // fixed stroke leave nothing for `style_controls` to
+                            // vary, so this was the one control in the row that
+                            // could not show it was under the pointer.
+                            let mode_button = egui::Button::new(
+                                egui::RichText::new(mode_label).color(accent).strong(),
+                            );
+                            if ui.add(mode_button).clicked() {
+                                let mut s = self.settings.lock().unwrap();
+                                s.mode = s.mode.next();
+                            }
+                            // Always visible, not only while the scrollback is empty:
+                            // forgetting what a mode does happens mid-session, which
+                            // is exactly when an empty-state hint is gone.
+                            ui.label(
+                                egui::RichText::new(mode_hint(current_mode))
+                                    .color(egui::Color32::from_gray(130))
+                                    .italics()
+                                    .size(13.0),
+                            );
+
+                            if self.buffered > 0 {
+                                ui.label(
+                                    egui::RichText::new(match self.send_word() {
+                                        Some(w) => format!(
+                                            "{} line(s) buffered \u{2014} say \"{w}\" to send",
+                                            self.buffered
+                                        ),
+                                        None => format!("{} line(s) buffered", self.buffered),
+                                    })
+                                    .color(egui::Color32::from_rgb(255, 200, 80))
+                                    .size(14.0),
+                                );
+                            }
+                        });
                     });
                 });
             });

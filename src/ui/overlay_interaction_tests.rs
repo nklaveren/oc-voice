@@ -4,6 +4,7 @@
 //! already there — those tests turn events into state without ever laying
 //! anything out, and these run egui for real to ask where the pointer went.
 
+use super::settings_panel::{MIN_H, MIN_W};
 use super::*;
 
 /// The overlay driven through egui with no window and no GL.
@@ -127,4 +128,75 @@ fn dragging_empty_panel_still_moves_the_overlay() {
         "dragging up must raise the overlay, got {:?}",
         request.bottom_margin
     );
+}
+
+#[test]
+fn closing_asks_first_and_never_answers_itself() {
+    // Both ends of the range the sliders allow. The narrow one matters: the
+    // question is three widgets where the button was one, and a confirmation
+    // that lays itself out past the edge of a layer surface does not exist.
+    closing_asks_first(900.0, 350.0);
+    closing_asks_first(MIN_W, MIN_H);
+}
+
+fn closing_asks_first(w: f32, h: f32) {
+    // Three properties, and the third is the one that needed a layout
+    // decision rather than a check: no single press anywhere ends the
+    // session; the question can be answered yes; and pressing the *same
+    // place* twice does not, because a double click is the likeliest way to
+    // reach the question by accident and cancel is what sits where the X was.
+    let (mut app, _tx) = app_with_channel();
+    let harness = Harness::new(&mut app, w, h);
+
+    // The row's right-hand end, without naming where egui put the button.
+    let (right, bottom) = (w as i32, h as i32);
+    let row: Vec<egui::Pos2> = ((right - 110).max(0)..right)
+        .step_by(4)
+        .flat_map(|x| {
+            ((bottom - 50).max(0)..bottom)
+                .step_by(4)
+                .map(move |y| egui::pos2(x as f32, y as f32))
+        })
+        .collect();
+
+    let mut armed_at = None;
+    for pos in &row {
+        app.quit_armed = None;
+        app.running.store(true, Ordering::SeqCst);
+        harness.click(&mut app, *pos);
+        assert!(
+            app.running.load(Ordering::SeqCst),
+            "one press at {pos:?} ended the session with no question"
+        );
+        if app.quit_armed.is_some() && armed_at.is_none() {
+            armed_at = Some(*pos);
+        }
+    }
+    let armed_at =
+        armed_at.unwrap_or_else(|| panic!("nothing on the strip arms the close at {w}x{h}"));
+
+    // The same press again: the answer under it must be the harmless one.
+    app.quit_armed = None;
+    app.running.store(true, Ordering::SeqCst);
+    harness.click(&mut app, armed_at);
+    harness.click(&mut app, armed_at);
+    assert!(
+        app.running.load(Ordering::SeqCst),
+        "pressing {armed_at:?} twice closed without ever showing a question"
+    );
+
+    // And the question is answerable: somewhere in the row, yes exists.
+    let mut confirmed = false;
+    for pos in &row {
+        app.quit_armed = Some(std::time::Instant::now());
+        app.running.store(true, Ordering::SeqCst);
+        harness.click(&mut app, armed_at);
+        app.quit_armed = Some(std::time::Instant::now());
+        harness.click(&mut app, *pos);
+        if !app.running.load(Ordering::SeqCst) {
+            confirmed = true;
+            break;
+        }
+    }
+    assert!(confirmed, "the close can be armed but never confirmed");
 }

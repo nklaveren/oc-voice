@@ -20,8 +20,8 @@ use crate::ui::host::LayoutRequest;
 /// Floors for the sliders. The ceilings are not constants — they come from
 /// the output, because a constant ceiling is how the overlay grew to 2400 px
 /// on a 1533 px panel and carried its own controls off the screen.
-const MIN_W: f32 = 320.0;
-const MIN_H: f32 = 120.0;
+pub(super) const MIN_W: f32 = 320.0;
+pub(super) const MIN_H: f32 = 120.0;
 /// Used only until the host reports the real output size, one configure away.
 const FALLBACK_W: f32 = 1280.0;
 const FALLBACK_H: f32 = 720.0;

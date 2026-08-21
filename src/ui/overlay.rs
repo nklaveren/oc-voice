@@ -95,6 +95,9 @@ struct OverlayApp {
     pub(super) layout_request: Option<LayoutRequest>,
     /// Which output the overlay was last moved to, remembered across runs.
     pub(super) monitor: String,
+    /// When the close button was armed, if it is. A layer surface has no
+    /// dialog to ask in, so the question lives in the control row itself.
+    pub(super) quit_armed: Option<std::time::Instant>,
     /// The host's answer for how big the surface may get. `None` until the
     /// first configure, and the controls stay conservative until then.
     pub(super) max_size: Option<(f32, f32)>,
@@ -249,6 +252,7 @@ impl OverlayApp {
                 state::Saved::load().apply_to(&mut l);
                 l
             },
+            quit_armed: None,
             layout_request: None,
             monitor: String::new(),
             max_size: None,
@@ -279,6 +283,9 @@ mod draw;
 
 #[path = "overlay_settings.rs"]
 mod settings_panel;
+
+#[path = "overlay_quit.rs"]
+mod quit;
 
 #[path = "overlay_state.rs"]
 mod state;
