@@ -79,6 +79,11 @@ pub struct BrowserCfg {
 pub struct OverlayCfg {
     /// `middle`, `left`, `right`, `focused`, or a monitor name like `DP-1`.
     pub monitor: Option<String>,
+    /// Which surface protocol draws the overlay: `layer`, `toplevel`, or
+    /// `auto`. Runtime rather than compile-time so the new host can be
+    /// compared against the one that ships without rebuilding — which is the
+    /// only way "it handles pointer and scale correctly" gets answered.
+    pub surface: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

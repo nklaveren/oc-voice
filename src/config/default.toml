@@ -27,6 +27,18 @@ languages = ["pt", "en"]
 # left to right — not by the order hyprctl reports them.
 [overlay]
 monitor = "middle"
+# Qual protocolo de superfície desenha o overlay: "auto" | "layer" | "toplevel".
+#
+# "toplevel" é uma janela de aplicativo comum — o compositor a encaixa no
+# tiling e dá foco a ela, e há uma thread desfazendo isso por fora depois.
+# "layer" é uma zwlr_layer_surface_v1: nunca entra no tiling e nunca recebe
+# foco, por construção, e a âncora é declarada em vez de calculada.
+#
+# "auto" usa layer quando o binário foi compilado com --features layer-shell,
+# e toplevel caso contrário. A escolha é de runtime, e não de compilação, para
+# dar para comparar os dois sem recompilar — que é o único jeito de responder
+# se o host novo acerta ponteiro e escala.
+surface = "auto"
 
 # Alcançar abas do navegador. Um navegador inteiro é UMA janela para o
 # compositor, então qualquer coisa guardada em aba é invisível para

@@ -62,7 +62,34 @@ pub struct Geometry {
     pub bottom_margin: f32,
 }
 
-/// Today's host: an `xdg_toplevel` driven by eframe over winit.
+/// The host this build uses.
+///
+/// **The single place the surface protocol is chosen.** Everything downstream
+/// sees `dyn OverlayHost`, so no `cfg` reaches the drawing code, the event
+/// handling, or `run_overlay` — the same containment `platform_injector()`
+/// gives text injection.
+pub fn default_host(
+    geometry: Geometry,
+    runner: std::sync::Arc<dyn crate::process::CommandRunner>,
+    monitor: String,
+    surface: &str,
+) -> Box<dyn OverlayHost> {
+    #[cfg(feature = "layer-shell")]
+    if matches!(surface, "auto" | "layer") {
+        tracing::info!(surface, "overlay on a wlr layer surface");
+        return Box::new(crate::ui::host_layer::LayerShellHost { geometry, monitor });
+    }
+    if surface == "layer" {
+        tracing::warn!("layer surface asked for but not compiled in; using the toplevel host");
+    }
+    Box::new(EframeHost {
+        geometry,
+        runner,
+        monitor,
+    })
+}
+
+/// Today's default host: an `xdg_toplevel` driven by eframe over winit.
 ///
 /// A toplevel is the surface type that means "I am an application window", so
 /// the compositor tiles it and focuses it, and `try_hyprland_float` undoes

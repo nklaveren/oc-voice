@@ -206,7 +206,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração ✅ `4bec2b2`
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:92`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:93`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 
@@ -680,7 +680,7 @@ Nem toda combinação faz sentido (comando a partir do áudio do sistema, não),
 
 ## M6 — Overlay nativo
 
-### M6.1 — Migrar o overlay para wlr-layer-shell
+### M6.1 — Migrar o overlay para wlr-layer-shell ✅ parcial (atrás de `--features layer-shell`)
 
 Hoje o overlay é uma **xdg_toplevel** — uma janela de aplicativo comum. Por isso ele entra no tiling, rouba foco, e precisa de uma thread de correção via `hyprctl` que roda depois do compositor já ter mapeado e encaixado a janela. Todo o trabalho de `try_hyprland_float` existe para desfazer, por fora, uma consequência de ter pedido o tipo errado de superfície.
 
@@ -721,7 +721,26 @@ Aparece em `hyprctl layers` no nível *top*, ausente de `clients`, e o SCTK anun
 
 **Enquanto isso, a regra de janela resolve o sintoma a custo zero** (ver README): `windowrulev2 = float/pin/nofocus, class:^(oc-voice)$` aplica no momento do map, antes de qualquer frame encaixado. Fazer a regra agora não conflita com a migração depois.
 
-**Aceite:** o overlay aparece como superfície de layer — `hyprctl layers` lista o namespace `oc-voice` — e não aparece em `hyprctl clients`. Nenhuma regra de janela necessária. `try_hyprland_float` e o módulo que a contém deixam de existir. O overlay nunca recebe foco: ditar em modo Enter com o overlay visível continua entregando o texto na janela de trabalho.
+**Aceite atingido, medido ao vivo:**
+
+```
+hyprctl layers:   monitor=HDMI-A-1 level=3 x=2806 y=1030 w=900 h=350 namespace: oc-voice
+hyprctl clients:  AUSENTE
+log:              overlay output chosen monitor=Some("HDMI-A-1")
+                  layer surface configured size=(900, 350) scale=1.0
+```
+
+`2806 1030` é **exatamente** a posição que o host toplevel calculava com aritmética de monitor e uma thread de polling. A layer surface chega lá no map, por `set_anchor(BOTTOM)` + `set_margin` e o output escolhido na criação — 53 ms do início ao configurado, sem `hyprctl` nenhum.
+
+**O que ainda não foi provado, e por isso não é o padrão:**
+
+- **Ponteiro.** A tradução `wl_pointer` → `egui::Event` existe em [`src/ui/host_layer_input.rs`](src/ui/host_layer_input.rs), mas ninguém clicou nos botões ainda. Sem isso, Settings/Gravar/Ata/modo são decoração.
+- **Escala fracionária.** O `wl_surface.set_buffer_scale` é inteiro; num output 1.67 o compositor reporta 2 e reduz por software — nítido o bastante, tamanho certo, mas não é o caminho bom. `wp_fractional_scale_v1` é a continuação.
+- **Render.** A superfície existe com geometria; se pinta ou é retângulo vazio não foi possível verificar por captura — o `grim` desta máquina está com o screencopy travado.
+
+A escolha é de **runtime** (`[overlay] surface = "auto" | "layer" | "toplevel"`), não de compilação, justamente para dar para comparar os dois hosts sem rebuild.
+
+**Aceite original:** o overlay aparece como superfície de layer — `hyprctl layers` lista o namespace `oc-voice` — e não aparece em `hyprctl clients`. Nenhuma regra de janela necessária. `try_hyprland_float` e o módulo que a contém deixam de existir. O overlay nunca recebe foco: ditar em modo Enter com o overlay visível continua entregando o texto na janela de trabalho.
 
 ---
 

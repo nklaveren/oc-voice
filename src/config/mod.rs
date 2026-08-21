@@ -153,6 +153,7 @@ pub struct Config {
     threshold: f64,
     segmentation: SegmentationSet,
     overlay_monitor: String,
+    overlay_surface: String,
     browser_port: Option<u16>,
     /// Not the vocabulary sections below — the languages *detection* may
     /// settle on. Named apart because they are different things that were
@@ -165,6 +166,8 @@ pub struct Config {
 
 /// Which monitor the overlay is pinned to when nothing says otherwise.
 pub const DEFAULT_OVERLAY_MONITOR: &str = "middle";
+/// Prefer the layer surface where it was compiled in, and say so out loud.
+pub const DEFAULT_OVERLAY_SURFACE: &str = "auto";
 
 impl Config {
     /// Embedded default only — what tests and `--no-config` runs see.
@@ -201,6 +204,9 @@ impl Config {
                 if let Some(m) = user.overlay.monitor {
                     base.overlay_monitor = m;
                 }
+                if let Some(s) = user.overlay.surface {
+                    base.overlay_surface = s;
+                }
                 if let Some(p) = user.browser.debug_port {
                     base.browser_port = Some(p);
                 }
@@ -232,6 +238,10 @@ impl Config {
                 .overlay
                 .monitor
                 .unwrap_or_else(|| DEFAULT_OVERLAY_MONITOR.to_string()),
+            overlay_surface: raw
+                .overlay
+                .surface
+                .unwrap_or_else(|| DEFAULT_OVERLAY_SURFACE.to_string()),
             browser_port: raw.browser.debug_port,
             spoken_languages: raw.asr.languages.unwrap_or_default(),
             confirm_below: raw.matching.confirm_below.unwrap_or(0.9),
@@ -258,6 +268,11 @@ impl Config {
     }
 
     /// Which monitor the overlay should be pinned to.
+    /// Which surface protocol to draw on.
+    pub fn overlay_surface(&self) -> &str {
+        &self.overlay_surface
+    }
+
     pub fn overlay_monitor(&self) -> &str {
         &self.overlay_monitor
     }

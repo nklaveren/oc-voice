@@ -1,5 +1,5 @@
 use crate::process::CommandRunner;
-use crate::ui::host::{EframeHost, Flow, Geometry, OverlayHost, OverlayUi};
+use crate::ui::host::{Flow, Geometry, OverlayUi};
 use crate::{AppSettings, TranscribeMode, TranscriptEvent};
 use anyhow::Result;
 use crossbeam_channel::Receiver;
@@ -22,15 +22,16 @@ pub fn run_overlay(
 ) -> Result<()> {
     // Which surface the overlay lives on, and what that costs to keep in
     // place, are the host's business — not this function's and not the UI's.
-    let host: Box<dyn OverlayHost> = Box::new(EframeHost {
-        geometry: Geometry {
+    let host = crate::ui::host::default_host(
+        Geometry {
             width: OVERLAY_W,
             height: OVERLAY_H,
             bottom_margin: OVERLAY_BOTTOM_MARGIN,
         },
-        runner: runner.clone(),
-        monitor: config.overlay_monitor().to_string(),
-    });
+        runner.clone(),
+        config.overlay_monitor().to_string(),
+        config.overlay_surface(),
+    );
     host.run(Box::new(OverlayApp::new(
         rx, running, settings, config, runner,
     )))
