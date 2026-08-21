@@ -42,6 +42,8 @@ pub struct LayoutRequest {
     pub size: Option<(f32, f32)>,
     /// Gap from the bottom edge of the monitor.
     pub bottom_margin: Option<f32>,
+    /// Offset from the horizontal centre of the monitor. Positive is right.
+    pub x_offset: Option<f32>,
     /// `-1` or `+1`: the monitor left or right of the current one, in
     /// spatial order.
     pub monitor_step: Option<i32>,
@@ -63,6 +65,15 @@ pub trait OverlayUi: Send {
     fn repaint_after(&self) -> Duration {
         Duration::from_millis(50)
     }
+
+    /// The largest surface this output can hold, in logical pixels.
+    ///
+    /// The UI cannot know it: it draws into a rectangle and is told nothing
+    /// about the screen behind it. Without this the size controls clamp
+    /// against invented constants — 2400x1200 on a 1533x862 panel, which is
+    /// how the overlay grew past the edge of the monitor and took its own
+    /// controls with it.
+    fn set_bounds(&mut self, _max_w: f32, _max_h: f32) {}
 
     /// A layout change the UI wants, *taken* rather than read, so it fires
     /// once. Same shape as the session request the record button uses: the UI

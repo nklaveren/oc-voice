@@ -95,6 +95,7 @@ impl OverlayHost for LayerShellHost {
             geometry: geom,
             want_monitor: self.monitor,
             ordered_outputs: Vec::new(),
+            x_offset: 0.0,
             rebuild: false,
             layer: None,
             fractional: None,
@@ -175,6 +176,8 @@ struct State {
     /// Names left to right, so a step is an index move rather than a guess.
     /// Filled at every rebuild, because monitors come and go.
     ordered_outputs: Vec<String>,
+    /// How far the surface sits from the monitor's horizontal centre.
+    x_offset: f32,
     rebuild: bool,
     layer: Option<LayerSurface>,
     /// The fractional-scale pair, when the compositor offers it. Without it
@@ -234,7 +237,8 @@ impl State {
         );
         layer.set_anchor(Anchor::BOTTOM);
         layer.set_size(self.geometry.width as u32, self.geometry.height as u32);
-        layer.set_margin(0, 0, self.geometry.bottom_margin as i32, 0);
+        let x = self.x_offset as i32;
+        layer.set_margin(0, -x, self.geometry.bottom_margin as i32, x);
         // Never take the keyboard. The whole reason `nofocus` had to be a
         // window rule is that a toplevel takes focus by default and dictated
         // text then lands in the overlay instead of the window being written
@@ -281,6 +285,10 @@ impl LayerShellHandler for State {
                 return;
             }
             info!(size = ?self.size, scale = self.scale, "layer surface configured");
+            // First moment the output is known well enough to bound the
+            // controls that resize this surface.
+            let (w, h) = (self.geometry.width, self.geometry.height);
+            self.fit_to_output(w, h);
         } else {
             self.resize_gl();
         }

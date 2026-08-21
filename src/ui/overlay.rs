@@ -89,12 +89,11 @@ struct OverlayApp {
     /// place left to move it from is the overlay itself.
     pub(super) layout: Layout,
     pub(super) layout_request: Option<LayoutRequest>,
-    /// The size to go back to when Settings closes. The panel grows the
-    /// surface to stay visible, and the slider's value is the intent — not
-    /// what is on screen while the panel is open.
-    pub(super) size_before_settings: Option<(f32, f32)>,
     /// Which output the overlay was last moved to, remembered across runs.
     pub(super) monitor: String,
+    /// The host's answer for how big the surface may get. `None` until the
+    /// first configure, and the controls stay conservative until then.
+    pub(super) max_size: Option<(f32, f32)>,
 }
 
 /// The knobs on the Settings panel's window section.
@@ -103,6 +102,9 @@ pub(super) struct Layout {
     pub width: f32,
     pub height: f32,
     pub bottom_margin: f32,
+    /// How far from the monitor's horizontal centre. Dragging sets this;
+    /// zero is centred, which is where it starts.
+    pub x_offset: f32,
     /// 0.0 fully transparent, 1.0 opaque. Replaces what
     /// `windowrule=opacity` used to do — a layer surface gives the compositor
     /// nothing to dim, so the panel dims itself.
@@ -204,6 +206,7 @@ impl OverlayApp {
             width: Some(self.layout.width),
             height: Some(self.layout.height),
             bottom_margin: Some(self.layout.bottom_margin),
+            x_offset: Some(self.layout.x_offset),
             opacity: Some(self.layout.opacity),
             monitor: (!self.monitor.is_empty()).then(|| self.monitor.clone()),
         }
@@ -236,14 +239,15 @@ impl OverlayApp {
                     width: OVERLAY_W,
                     height: OVERLAY_H,
                     bottom_margin: OVERLAY_BOTTOM_MARGIN,
+                    x_offset: 0.0,
                     opacity: OVERLAY_OPACITY,
                 };
                 state::Saved::load().apply_to(&mut l);
                 l
             },
             layout_request: None,
-            size_before_settings: None,
             monitor: String::new(),
+            max_size: None,
         }
     }
 
@@ -282,7 +286,7 @@ impl OverlayUi for OverlayApp {
         // A keybinding can ask for the panel. Taken, not read, so one press
         // is one toggle.
         if std::mem::take(&mut crate::lock_settings(&self.settings).toggle_settings) {
-            self.show_settings = !self.show_settings;
+            self.set_settings_open(!self.show_settings);
         }
         // The pipeline signals shutdown by clearing this; how a window closes
         // is the host's business.
@@ -300,6 +304,14 @@ impl OverlayUi for OverlayApp {
     fn clear_color(&self) -> [f32; 4] {
         // Fully transparent; the panel we draw is the only opaque thing.
         [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn set_bounds(&mut self, max_w: f32, max_h: f32) {
+        self.max_size = Some((max_w, max_h));
+        // A saved size from a bigger monitor must not survive the move to a
+        // smaller one, or the overlay comes back off-screen with no way to
+        // reach the slider that would fix it.
+        self.clamp_layout();
     }
 
     fn take_layout_request(&mut self) -> Option<LayoutRequest> {

@@ -22,6 +22,7 @@ pub(super) struct Saved {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub bottom_margin: Option<f32>,
+    pub x_offset: Option<f32>,
     pub opacity: Option<f32>,
     /// Which output it was last moved to, so stepping across monitors sticks.
     pub monitor: Option<String>,
@@ -70,6 +71,9 @@ impl Saved {
         }
         if let Some(v) = self.bottom_margin {
             layout.bottom_margin = v;
+        }
+        if let Some(v) = self.x_offset {
+            layout.x_offset = v;
         }
         if let Some(v) = self.opacity {
             layout.opacity = v;

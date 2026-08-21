@@ -66,7 +66,11 @@ impl OverlayApp {
             .corner_radius(10.0)
             .inner_margin(egui::Margin::symmetric(PAD_X, PAD_Y));
 
-        bg.show(ui, |ui| {
+        // Dragging the panel moves the overlay. There is no title bar to
+        // grab and no window manager to grab it with, so the panel itself is
+        // the handle — anywhere that is not a widget, since egui gives the
+        // widgets the pointer first.
+        let dragged = bg.show(ui, |ui| {
             ui.set_min_size(panel_size);
             ui.set_width(panel_size.x);
 
@@ -115,88 +119,104 @@ impl OverlayApp {
                 // vanished, leaving a black rectangle with no way to switch
                 // modes. Reserve the chrome first, give the scroll what's left.
                 // Resolved before the closure borrows `self` for the lines.
-                let idle = self.partial_mic.is_empty() && self.partial_system.is_empty();
-                let hint = if self.finals.is_empty() && idle {
-                    Some(match self.send_word() {
-                        Some(w) => format!("[ speak into the mic \u{2014} say \"{w}\" to send ]"),
-                        None => "[ speak into the mic \u{2014} dictation only ]".to_string(),
-                    })
+                // Settings is a *mode*, not a window over this one. A layer
+                // surface has a fixed extent: a dialog drawn past its edge
+                // does not exist, and no z-order changes that. So the strip
+                // shows configuration instead of speech, and the control row
+                // below stays put so there is always a way back.
+                if self.show_settings {
+                    let h = scroll_height(ui.available_height(), CONTROLS_HEIGHT);
+                    ui.allocate_ui(egui::vec2(ui.available_width(), h), |ui| {
+                        self.settings_view(ui);
+                    });
                 } else {
-                    None
-                };
-                let scroll_height = scroll_height(ui.available_height(), CONTROLS_HEIGHT);
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .stick_to_bottom(true)
-                    .max_height(scroll_height)
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        for line in &self.finals {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(&line.text)
-                                        .color(speaker_color(line.source))
-                                        .size(18.0),
-                                )
-                                // Without this, long utterances are cut at the
-                                // window edge instead of wrapping.
-                                .wrap(),
-                            );
-
-                            // M7.2: the translation sits under its own
-                            // original, tinted and marked, so it is never
-                            // mistaken for what was said — and it stays there.
-                            // Scrolling back through a meeting must show both.
-                            if let Some(ref pt) = line.translation {
+                    let idle = self.partial_mic.is_empty() && self.partial_system.is_empty();
+                    let hint = if self.finals.is_empty() && idle {
+                        Some(match self.send_word() {
+                            Some(w) => {
+                                format!("[ speak into the mic \u{2014} say \"{w}\" to send ]")
+                            }
+                            None => "[ speak into the mic \u{2014} dictation only ]".to_string(),
+                        })
+                    } else {
+                        None
+                    };
+                    let scroll_height = scroll_height(ui.available_height(), CONTROLS_HEIGHT);
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .stick_to_bottom(true)
+                        .max_height(scroll_height)
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            for line in &self.finals {
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new(format!("{TRANSLATION_MARKER}{pt}"))
+                                        egui::RichText::new(&line.text)
+                                            .color(speaker_color(line.source))
+                                            .size(18.0),
+                                    )
+                                    // Without this, long utterances are cut at the
+                                    // window edge instead of wrapping.
+                                    .wrap(),
+                                );
+
+                                // M7.2: the translation sits under its own
+                                // original, tinted and marked, so it is never
+                                // mistaken for what was said — and it stays there.
+                                // Scrolling back through a meeting must show both.
+                                if let Some(ref pt) = line.translation {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(format!(
+                                                "{TRANSLATION_MARKER}{pt}"
+                                            ))
                                             .color(egui::Color32::from_rgb(120, 200, 255))
+                                            .size(18.0),
+                                        )
+                                        .wrap(),
+                                    );
+                                }
+                            }
+                            // Both in-progress utterances, each in its speaker's
+                            // colour: while you talk over a meeting there are two,
+                            // and neither should overwrite the other.
+                            for (partial, source) in [
+                                (&self.partial_system, crate::Source::System),
+                                (&self.partial_mic, crate::Source::Mic),
+                            ] {
+                                if partial.is_empty() {
+                                    continue;
+                                }
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(partial)
+                                            .color(speaker_color(source).gamma_multiply(0.7))
+                                            .italics()
                                             .size(18.0),
                                     )
                                     .wrap(),
                                 );
                             }
-                        }
-                        // Both in-progress utterances, each in its speaker's
-                        // colour: while you talk over a meeting there are two,
-                        // and neither should overwrite the other.
-                        for (partial, source) in [
-                            (&self.partial_system, crate::Source::System),
-                            (&self.partial_mic, crate::Source::Mic),
-                        ] {
-                            if partial.is_empty() {
-                                continue;
-                            }
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(partial)
-                                        .color(speaker_color(source).gamma_multiply(0.7))
-                                        .italics()
-                                        .size(18.0),
-                                )
-                                .wrap(),
-                            );
-                        }
 
-                        // The empty state belongs to the scrollback, not below
-                        // it — placed after the area it would be off-screen.
-                        if let Some(hint) = hint {
-                            ui.label(
-                                egui::RichText::new(hint)
-                                    .color(egui::Color32::from_gray(120))
-                                    .italics()
-                                    .size(14.0),
-                            );
-                        }
-                    });
+                            // The empty state belongs to the scrollback, not below
+                            // it — placed after the area it would be off-screen.
+                            if let Some(hint) = hint {
+                                ui.label(
+                                    egui::RichText::new(hint)
+                                        .color(egui::Color32::from_gray(120))
+                                        .italics()
+                                        .size(14.0),
+                                );
+                            }
+                        });
+                }
 
                 // Control row: always the last thing drawn, always inside the
                 // panel because the scroll area above it is bounded.
                 ui.horizontal(|ui| {
                     style_controls(ui);
                     if ui.button("\u{2699} Settings").clicked() {
-                        self.show_settings = !self.show_settings;
+                        self.set_settings_open(!self.show_settings);
                     }
 
                     // Starting and stopping were spoken-only, which fails in
@@ -294,9 +314,13 @@ impl OverlayApp {
                 });
             });
         });
-
-        if self.show_settings {
-            self.settings_window(ui);
+        let handle = dragged.response.interact(egui::Sense::drag());
+        if handle.dragged() {
+            self.drag_by(handle.drag_delta());
+        }
+        if handle.drag_stopped() {
+            // Written down when the drag settles, not on every frame of it.
+            self.save_layout();
         }
     }
 }
