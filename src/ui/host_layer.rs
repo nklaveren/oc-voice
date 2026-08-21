@@ -40,6 +40,8 @@ use wayland_client::{
 
 use super::host::{Geometry, OverlayHost, OverlayUi};
 
+#[path = "host_layer_cursor.rs"]
+mod cursor;
 #[path = "host_layer_frame.rs"]
 mod frame;
 #[path = "host_layer_gl.rs"]
@@ -102,6 +104,8 @@ impl OverlayHost for LayerShellHost {
             viewport: None,
             fractional_surface: None,
             pointer: None,
+            cursor_shape: None,
+            enter_serial: 0,
             gl: None,
             egui: egui::Context::default(),
             ui,
@@ -112,6 +116,15 @@ impl OverlayHost for LayerShellHost {
             cursor: None,
             exit: false,
         };
+
+        // Before the roundtrip: the seat announces its pointer during it, and
+        // that is where the device gets taken.
+        state.cursor_shape = cursor::Cursor::bind(&globals, &qh);
+        if state.cursor_shape.is_none() {
+            warn!(
+                "no cursor-shape protocol here; the pointer keeps whatever image it arrived with"
+            );
+        }
 
         // Outputs have to be known before the surface is created: which screen
         // it lands on is a creation argument, not something to fix afterwards.
@@ -187,6 +200,12 @@ struct State {
     fractional_surface:
         Option<wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::WpFractionalScaleV1>,
     pointer: Option<wl_pointer::WlPointer>,
+    /// What the cursor should look like over this surface, when the
+    /// compositor lets us say. A client owns the pointer image while it has
+    /// the pointer; saying nothing leaves whatever the last surface set.
+    cursor_shape: Option<cursor::Cursor>,
+    /// The serial of the last `enter`. `set_shape` is refused without it.
+    enter_serial: u32,
     gl: Option<Gl>,
     egui: egui::Context,
     ui: Box<dyn OverlayUi>,

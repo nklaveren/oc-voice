@@ -101,6 +101,13 @@ impl State {
         // own `App::ui`, so both hosts satisfy the contract identically.
         let out = ctx.run_ui(raw, |ui| app.paint(ui));
 
+        // Whatever the UI decided the cursor should be. eframe hands this to
+        // winit; here it is ours to send, and not sending it is what left the
+        // pointer wearing whatever image it walked in with.
+        if let Some(c) = self.cursor_shape.as_mut() {
+            c.set(out.platform_output.cursor_icon, self.enter_serial);
+        }
+
         let dims: [u32; 2] = [w.max(1), h.max(1)];
         let clipped = ctx.tessellate(out.shapes, out.pixels_per_point);
         gl.painter.clear(dims, self.ui.clear_color());

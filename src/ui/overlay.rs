@@ -82,6 +82,8 @@ struct OverlayApp {
     pub(super) finals: Vec<Line>,
     pub(super) buffered: usize,
     show_settings: bool,
+    /// Whether the one-off style tweak has been applied to the context.
+    styled: bool,
     pub(super) pipeline_failed: bool,
     /// When a session is recording, and how many lines it holds (M7.1).
     /// Recording without a visible indication is not acceptable.
@@ -239,6 +241,7 @@ impl OverlayApp {
             finals: Vec::new(),
             buffered: 0,
             show_settings: false,
+            styled: false,
             pipeline_failed: false,
             recording: None,
             layout: {

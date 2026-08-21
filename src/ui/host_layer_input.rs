@@ -31,12 +31,23 @@ impl PointerHandler for State {
         for e in events {
             let pos = egui::pos2(e.position.0 as f32, e.position.1 as f32);
             match e.kind {
-                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                PointerEventKind::Enter { serial } => {
+                    // Kept because `wp_cursor_shape_v1` refuses a request that
+                    // does not carry it: a client may only dress the cursor
+                    // while it is the one holding it.
+                    self.enter_serial = serial;
+                    self.cursor = Some(pos);
+                    self.events.push(egui::Event::PointerMoved(pos));
+                }
+                PointerEventKind::Motion { .. } => {
                     self.cursor = Some(pos);
                     self.events.push(egui::Event::PointerMoved(pos));
                 }
                 PointerEventKind::Leave { .. } => {
                     self.cursor = None;
+                    if let Some(c) = self.cursor_shape.as_mut() {
+                        c.forget();
+                    }
                     self.events.push(egui::Event::PointerGone);
                 }
                 PointerEventKind::Press { button, .. }
@@ -92,7 +103,12 @@ impl SeatHandler for State {
     ) {
         if cap == Capability::Pointer && self.pointer.is_none() {
             match self.seat.get_pointer(qh, &seat) {
-                Ok(p) => self.pointer = Some(p),
+                Ok(p) => {
+                    if let Some(c) = self.cursor_shape.as_mut() {
+                        c.attach(&p, qh);
+                    }
+                    self.pointer = Some(p);
+                }
                 Err(e) => warn!(error = %e, "no pointer; the overlay's buttons will not respond"),
             }
         }

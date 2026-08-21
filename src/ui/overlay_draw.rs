@@ -48,6 +48,17 @@ pub(super) fn style_controls(ui: &mut egui::Ui) {
 
 impl OverlayApp {
     pub(super) fn draw(&mut self, ui: &mut egui::Ui) {
+        // Once, not per frame: `style_mut` clones the whole style behind an
+        // Arc, and this asks egui to name a cursor for anything interactive.
+        // The host is what turns that name into an image; between them, the
+        // pointer stops wearing whatever it walked in from the last window.
+        if !self.styled {
+            self.styled = true;
+            ui.ctx().global_style_mut(|s| {
+                s.visuals.interact_cursor = Some(egui::CursorIcon::PointingHand);
+            });
+        }
+
         // The panel's own padding comes off the space it is given. Asking for
         // the full `available_size()` *inside* a frame that then adds 32x24
         // around it makes the content taller than the surface, and what falls
@@ -88,6 +99,13 @@ impl OverlayApp {
             ui.id().with("overlay-drag"),
             egui::Sense::drag(),
         );
+        // The panel is the only handle this window has; the cursor is the only
+        // place that can be said.
+        let handle = if handle.dragged() {
+            handle.on_hover_cursor(egui::CursorIcon::Grabbing)
+        } else {
+            handle.on_hover_cursor(egui::CursorIcon::Grab)
+        };
         bg.show(ui, |ui| {
             ui.set_min_size(panel_size);
             ui.set_width(panel_size.x);
