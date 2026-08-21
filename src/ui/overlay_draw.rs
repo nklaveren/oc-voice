@@ -6,6 +6,43 @@
 
 use super::*;
 
+/// Text on a filled button, dark enough to read on any of the accents.
+const INK: egui::Color32 = egui::Color32::from_rgb(20, 20, 24);
+/// The only irreversible control in the row.
+const DANGER: egui::Color32 = egui::Color32::from_rgb(235, 85, 85);
+
+/// Pill buttons for the control row.
+///
+/// Scoped to the row rather than set globally: this overlay draws on top of
+/// whatever is behind it, and restyling the whole context would also restyle
+/// the Settings window, where plain widgets read better.
+///
+/// The values are chosen against a translucent dark panel — flat fills would
+/// disappear into it, so each state separates by luminance rather than hue,
+/// and every widget keeps a hairline so its edge survives a bright wallpaper.
+fn style_controls(ui: &mut egui::Ui) {
+    let radius = egui::CornerRadius::same(9);
+    let w = &mut ui.style_mut().visuals.widgets;
+    for (state, fill, stroke) in [
+        (&mut w.inactive, 32u8, 70u8),
+        (&mut w.hovered, 56, 110),
+        (&mut w.active, 78, 150),
+    ] {
+        state.corner_radius = radius;
+        state.bg_fill = egui::Color32::from_gray(fill);
+        state.weak_bg_fill = egui::Color32::from_gray(fill);
+        state.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(stroke));
+    }
+    w.noninteractive.corner_radius = radius;
+    // A disabled control still has to look like a control, or "Ata" before a
+    // session exists reads as a rendering fault instead of as not-yet.
+    w.noninteractive.bg_fill = egui::Color32::from_gray(24);
+    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(44));
+    let spacing = ui.spacing_mut();
+    spacing.button_padding = egui::vec2(10.0, 5.0);
+    spacing.item_spacing.x = 8.0;
+}
+
 impl OverlayApp {
     pub(super) fn draw(&mut self, ui: &mut egui::Ui) {
         // The panel's own padding comes off the space it is given. Asking for
@@ -155,6 +192,7 @@ impl OverlayApp {
                 // Control row: always the last thing drawn, always inside the
                 // panel because the scroll area above it is bounded.
                 ui.horizontal(|ui| {
+                    style_controls(ui);
                     if ui.button("\u{2699} Settings").clicked() {
                         self.show_settings = !self.show_settings;
                     }
@@ -165,15 +203,17 @@ impl OverlayApp {
                     // room there is no utterance to carry the command at all.
                     let recording = self.recording.is_some();
                     // No glyph: ● and ■ live in the same block as the ◯ that
-                    // already rendered as an empty box. Colour carries it.
-                    let label = if recording {
-                        egui::RichText::new("Parar")
-                            .color(egui::Color32::from_rgb(255, 90, 90))
-                            .strong()
+                    // already rendered as an empty box. Colour carries it —
+                    // and while recording it carries it as a filled button,
+                    // not just tinted text, because that is the one state
+                    // nobody should have to read twice.
+                    let record = if recording {
+                        egui::Button::new(egui::RichText::new("Parar").color(INK).strong())
+                            .fill(DANGER)
                     } else {
-                        egui::RichText::new("Gravar")
+                        egui::Button::new(egui::RichText::new("Gravar"))
                     };
-                    if ui.button(label).clicked() {
+                    if ui.add(record).clicked() {
                         let request = if recording {
                             crate::SessionRequest::Stop
                         } else {
@@ -207,7 +247,18 @@ impl OverlayApp {
                         // is loaded is worse than no label.
                         TranscribeMode::Translate => "\u{1f310} Áudio do sistema",
                     };
-                    if ui.button(mode_label).clicked() {
+                    // Tinted with the same colour the transcript uses for that
+                    // speaker, so the button and the text it produces agree
+                    // without a legend.
+                    let accent = speaker_color(match current_mode {
+                        TranscribeMode::Enter => crate::Source::Mic,
+                        TranscribeMode::Translate => crate::Source::System,
+                    });
+                    let mode_button =
+                        egui::Button::new(egui::RichText::new(mode_label).color(accent).strong())
+                            .fill(accent.gamma_multiply(0.14))
+                            .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.5)));
+                    if ui.add(mode_button).clicked() {
                         let mut s = self.settings.lock().unwrap();
                         s.mode = s.mode.next();
                     }

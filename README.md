@@ -67,6 +67,27 @@ resolve, to the mode that absorbed them.
 | "fecha" → "confirma" | close the focused window (always asks first) |
 | "fecha o \<alvo\>" → "confirma" | close the window you name, not the focused one |
 
+### Keybindings
+
+A running instance listens on `$XDG_RUNTIME_DIR/oc-voice.sock`, so the same
+actions the overlay's buttons perform are reachable from a key:
+
+```
+# ~/.config/hypr/hyprland.conf
+bind = SUPER, R, exec, oc-voice ctl record
+bind = SUPER SHIFT, R, exec, oc-voice ctl stop
+bind = SUPER, M, exec, oc-voice ctl mode
+```
+
+`oc-voice ctl` with no verb lists them. This exists because both other ways in
+fail in a call: reaching for a floating overlay is the friction the spoken
+commands were meant to remove, and saying the stop word out loud announces to
+the room that you were recording.
+
+Every verb sets the same field a button sets and lets the pipeline decide —
+never acting directly, so a keybinding and a click cannot drift into meaning
+different things.
+
 Destructive actions and low-confidence window matches wait for spoken
 confirmation ("confirma" / "não"). Everything else fires immediately. The
 confirmation names its target — `close_window "teams"?`, not `close_window?` —

@@ -17,6 +17,7 @@ mod audio;
 mod cli;
 mod commands;
 mod config;
+mod control;
 mod input;
 mod ocr;
 mod ocrprobe;
@@ -231,7 +232,7 @@ fn main() -> Result<()> {
 
     let model_path = std::env::args().nth(1).ok_or_else(|| {
         anyhow!(
-            "usage: oc-voice <model.bin> | probe [lang] | devices | levels | asr-test <model.bin> | ocr <alvo>"
+            "usage: oc-voice <model.bin> | probe [lang] | devices | levels | asr-test <model.bin> | ocr <alvo> | ctl <verb>"
         )
     })?;
 
@@ -261,6 +262,16 @@ fn main() -> Result<()> {
         detected_language: None,
         session_request: None,
     }));
+
+    // A third way in, beside the buttons and the spoken words: a keybinding.
+    // Reaching for a floating overlay mid-call is the friction the spoken
+    // commands exist to remove, and saying the stop word out loud announces
+    // to the room that you were recording.
+    {
+        let s = settings.clone();
+        let r = running.clone();
+        std::thread::spawn(move || control::serve(s, r));
+    }
 
     let vocab_config = Arc::new(config::Config::load());
 
