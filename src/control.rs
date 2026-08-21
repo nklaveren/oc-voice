@@ -46,14 +46,24 @@ const VERBS: &[(&str, &str)] = &[
     ("status", "print mode and whether a session is open"),
 ];
 
+/// Whether another instance is already serving.
+///
+/// The socket is the lock: it is per-user, cleared on logout, and a live one
+/// answers a connect. A stale one from a killed process does not, which is
+/// the case that must *not* count as running.
+pub fn already_running() -> bool {
+    let path = socket_path();
+    path.exists() && UnixStream::connect(&path).is_ok()
+}
+
 /// Serve until `running` clears. Errors are logged, never fatal: the app has
 /// to work with no socket at all, on a system where the runtime dir is
 /// read-only or the path is taken.
 pub fn serve(settings: Arc<Mutex<AppSettings>>, running: Arc<AtomicBool>) {
     let path = socket_path();
     // A stale socket from a killed process would refuse to bind. Removing it
-    // is safe because a live one answers, and the check is a connect below.
-    if path.exists() && UnixStream::connect(&path).is_ok() {
+    // is safe because a live one answers, which is what `already_running` asks.
+    if already_running() {
         warn!(path = %path.display(), "another oc-voice already holds the control socket");
         return;
     }

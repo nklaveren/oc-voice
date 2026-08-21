@@ -55,6 +55,12 @@ pub enum WmAction {
     FocusWindow {
         address: String,
     },
+    /// Move the window that was named to a workspace, rather than whichever
+    /// one happens to have focus.
+    MoveWindowToWorkspace {
+        number: u32,
+        address: String,
+    },
     /// Start something that is not running. The command comes from the
     /// desktop's own `.desktop` files, never from this repo — see `launch.rs`.
     Launch {
@@ -127,6 +133,14 @@ impl Hyprctl {
             WmAction::MoveToWorkspace { number } => {
                 vec![s("dispatch"), s("movetoworkspace"), number.to_string()]
             }
+            // One argument, comma-joined: hyprctl reads `3,address:0x…` as a
+            // workspace and a window, and reads `3 address:0x…` as a
+            // workspace and a syntax error.
+            WmAction::MoveWindowToWorkspace { number, address } => vec![
+                s("dispatch"),
+                s("movetoworkspace"),
+                format!("{number},address:{address}"),
+            ],
             WmAction::FocusMonitor { name } => {
                 vec![s("dispatch"), s("focusmonitor"), name.clone()]
             }

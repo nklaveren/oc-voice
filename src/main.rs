@@ -245,6 +245,22 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // One instance per session, checked before the model is loaded rather
+    // than after — a second copy costs a gigabyte and eight seconds before it
+    // gets to do any harm.
+    //
+    // And it does harm: two instances hear the same microphone and both type
+    // what they heard, so every character arrives twice, interleaved. That is
+    // how this was found — a message came through as "oonn tthhee
+    // hhyyppeerrllaanndd". The socket already detected the condition and only
+    // declined to serve on it, which left the half that types running.
+    if control::already_running() {
+        return Err(anyhow::anyhow!(
+            "another oc-voice is already running in this session; \
+             two of them type every utterance twice"
+        ));
+    }
+
     let running = Arc::new(AtomicBool::new(true));
     let running_ctrl = running.clone();
     ctrlc::set_handler(move || {

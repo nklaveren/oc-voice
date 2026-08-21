@@ -21,6 +21,36 @@ fn cjk_languages_have_no_commands() {
     assert!(c.vocab("zh").is_none());
 }
 
+/// Every action has to be reachable in every language.
+///
+/// English was missing `focus_window`'s "open" phrasing for as long as the
+/// feature existed, and nothing said so: a language section is a list of
+/// patterns, and a list cannot be short of anything. The invariant is that
+/// the *set of actions* matches, not the set of phrasings — one language
+/// wanting four ways to say a thing and another wanting two is a fact about
+/// the languages, not a gap.
+#[test]
+fn no_action_is_reachable_in_only_some_languages() {
+    use std::collections::BTreeSet;
+    let c = Config::embedded();
+    let actions = |lang: &str| -> BTreeSet<String> {
+        let v = c.vocab(lang).unwrap_or_else(|| panic!("{lang} section"));
+        v.templates
+            .iter()
+            .map(|t| t.action.clone())
+            .chain(v.wm_commands.values().cloned())
+            .collect()
+    };
+    let pt = actions("pt");
+    let en = actions("en");
+    let only_pt: Vec<&String> = pt.difference(&en).collect();
+    let only_en: Vec<&String> = en.difference(&pt).collect();
+    assert!(
+        only_pt.is_empty() && only_en.is_empty(),
+        "actions reachable in one language only — pt: {only_pt:?}, en: {only_en:?}"
+    );
+}
+
 /// Consistency of the shipped bindings: a typo in an action name or a
 /// direction value in default.toml would otherwise only surface as a
 /// command that silently does nothing.
@@ -34,6 +64,7 @@ fn embedded_bindings_are_internally_consistent() {
         "move_focus",
         "workspace",
         "move_to_workspace",
+        "move_window_to_workspace",
         "focus_monitor",
         "focus_monitor_name",
         "focus_window",

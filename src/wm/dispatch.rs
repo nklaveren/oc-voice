@@ -123,7 +123,7 @@ pub fn dispatch_spoken(
     if let Some((word, _)) = matcher::match_exact(spoken, &words, threshold) {
         return execute_action(
             &vocab.wm_commands[word].clone(),
-            None,
+            &Slots::new(),
             vocab,
             config,
             runner,
@@ -152,10 +152,9 @@ pub fn dispatch_spoken(
         .collect();
     if let Some(m) = matcher::match_template(spoken, &templates, threshold) {
         let def = &vocab.templates[m.template_index];
-        let slot_value = m.slots.values().next().cloned();
         return execute_action(
             &def.action.clone(),
-            slot_value.as_deref(),
+            &m.slots,
             vocab,
             config,
             runner,
@@ -178,13 +177,14 @@ pub fn dispatch_spoken(
 /// sentence is silently discarded instead of typed.
 fn execute_action(
     action: &str,
-    slot: Option<&str>,
+    slots: &Slots,
     vocab: &LangVocab,
     config: &Config,
     runner: &Arc<dyn CommandRunner>,
     tx: &Sender<TranscriptEvent>,
     pending: &mut Option<PendingAction>,
 ) -> bool {
+    let slot = named(slots, "alvo");
     // M3.3/M4.3: destructive actions never fire directly.
     if config.is_destructive(action) {
         // Resolve before arming, not after confirming. This used to be
@@ -193,7 +193,7 @@ fn execute_action(
         // with no Photoshop open asked for confirmation, ran `hyprctl` with no
         // arguments on yes, and swallowed the sentence either way. A question
         // whose answer does nothing is worse than no question.
-        let Some(act) = dispatch_args(action, slot, vocab, config, runner) else {
+        let Some(act) = dispatch_args(action, slots, vocab, config, runner) else {
             debug!(action, ?slot, "slot did not resolve; nothing to confirm");
             return false;
         };
@@ -217,7 +217,7 @@ fn execute_action(
     if let Some(done) = crate::wm::page::act_on_focused(action, slot, config, runner, tx) {
         return done;
     }
-    if let Some(act) = dispatch_args(action, slot, vocab, config, runner) {
+    if let Some(act) = dispatch_args(action, slots, vocab, config, runner) {
         run_dispatch(runner, tx, &act);
         true
     } else {
@@ -228,14 +228,34 @@ fn execute_action(
 
 /// Build the hyprctl argument list for an action, resolving the slot. None
 /// means the slot failed to resolve and nothing must be dispatched.
+/// The slots one template match filled in, by name.
+pub(crate) type Slots = std::collections::HashMap<String, String>;
+
+/// One slot by name, or the only one there is.
+///
+/// Every template used to carry exactly one slot, so the dispatcher took
+/// `values().next()` and never had to know its name. "manda o {alvo} pro
+/// {numero}" carries two, and `values().next()` on a `HashMap` returns
+/// whichever the hash ordered first — a coin toss at runtime, and the kind of
+/// bug that passes its own tests. Named lookup is the fix; the fallback keeps
+/// every existing template working even if it named its slot something else,
+/// and the characterization snapshot is what proves that.
+fn named<'a>(slots: &'a Slots, name: &str) -> Option<&'a str> {
+    if let Some(v) = slots.get(name) {
+        return Some(v.as_str());
+    }
+    (slots.len() == 1).then(|| slots.values().next().map(String::as_str))?
+}
+
 fn dispatch_args(
     action: &str,
-    slot: Option<&str>,
+    slots: &Slots,
     vocab: &LangVocab,
     config: &Config,
     runner: &Arc<dyn CommandRunner>,
 ) -> Option<WmAction> {
     let threshold = config.threshold();
+    let slot = named(slots, "alvo");
     let act: WmAction = match action {
         "fullscreen" => WmAction::Fullscreen,
         "toggle_floating" => WmAction::ToggleFloating,
@@ -265,12 +285,26 @@ fn dispatch_args(
             WmAction::MoveFocus { direction: dir }
         }
         "workspace" => {
-            let n = resolve_number(slot?, vocab, threshold)?;
+            let n = resolve_number(named(slots, "numero")?, vocab, threshold)?;
             WmAction::Workspace { number: n }
         }
         "move_to_workspace" => {
-            let n = resolve_number(slot?, vocab, threshold)?;
+            let n = resolve_number(named(slots, "numero")?, vocab, threshold)?;
             WmAction::MoveToWorkspace { number: n }
+        }
+        // Move the window you *name*. The command that existed moves whatever
+        // has focus, which is the wrong window exactly when you are looking at
+        // the thing you want to send somewhere else — and the only way to use
+        // it was to go to that window first, which defeats the point.
+        "move_window_to_workspace" => {
+            let n = resolve_number(named(slots, "numero")?, vocab, threshold)?;
+            let spoken = named(slots, "alvo")?;
+            let windows = target::live_windows(runner);
+            let resolved = target::resolve(spoken, &vocab.targets, &windows, threshold)?;
+            WmAction::MoveWindowToWorkspace {
+                number: n,
+                address: resolved.address,
+            }
         }
         "focus_monitor" => {
             let dir = resolve_direction(slot?, vocab, threshold)?;

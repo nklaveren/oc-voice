@@ -241,6 +241,26 @@ action = "move_to_workspace"
 pattern = "manda para {numero}"
 action = "move_to_workspace"
 
+# Mandar a janela que se NOMEIA, não a que está em foco. As de cima só servem
+# depois de ir até a janela, o que é justamente o trabalho que se queria
+# evitar. `{alvo}` no meio pega uma palavra só — "youtube", não "visual studio
+# code"; para essas, vá até ela e use a forma sem alvo.
+[[pt.templates]]
+pattern = "manda o {alvo} pro {numero}"
+action = "move_window_to_workspace"
+
+[[pt.templates]]
+pattern = "manda o {alvo} para {numero}"
+action = "move_window_to_workspace"
+
+[[pt.templates]]
+pattern = "manda a {alvo} pro {numero}"
+action = "move_window_to_workspace"
+
+[[pt.templates]]
+pattern = "move o {alvo} pro {numero}"
+action = "move_window_to_workspace"
+
 # "foca o teams" não é como ninguém pede uma janela. Estas são.
 [[pt.templates]]
 pattern = "vai pro {alvo}"
@@ -408,9 +428,40 @@ action = "move_focus"
 pattern = "workspace {numero}"
 action = "workspace"
 
+# Portuguese has eight ways to reach a workspace and English had one, which is
+# what "the English version is not working" turned out to mean. Measured:
+# "go to workspace 3" matched "go to {alvo}", whose trailing open slot
+# swallowed "workspace 3" and then looked for a window by that name. The
+# exact-length pass settles these first, so they win over the absorbing form.
+[[en.templates]]
+pattern = "go to workspace {numero}"
+action = "workspace"
+
+[[en.templates]]
+pattern = "switch to workspace {numero}"
+action = "workspace"
+
+[[en.templates]]
+pattern = "move to workspace {numero}"
+action = "move_to_workspace"
+
+[[en.templates]]
+pattern = "send to workspace {numero}"
+action = "move_to_workspace"
+
 [[en.templates]]
 pattern = "move to {numero}"
 action = "move_to_workspace"
+
+# The named-window form. "workspace" is spelled out so the word count keeps it
+# apart from "move to {numero}", which moves whatever has focus.
+[[en.templates]]
+pattern = "move {alvo} to workspace {numero}"
+action = "move_window_to_workspace"
+
+[[en.templates]]
+pattern = "send {alvo} to workspace {numero}"
+action = "move_window_to_workspace"
 
 [[en.templates]]
 pattern = "go to {alvo}"

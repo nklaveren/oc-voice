@@ -20,8 +20,12 @@ fn dispatched(fake: &FakeRunner) -> Vec<Vec<String>> {
 }
 
 fn say(spoken: &str, fixture: &[u8]) -> (Vec<Vec<String>>, Option<PendingAction>) {
+    say_in("pt", spoken, fixture)
+}
+
+fn say_in(lang: &str, spoken: &str, fixture: &[u8]) -> (Vec<Vec<String>>, Option<PendingAction>) {
     let (fake, runner, config) = setup(fixture);
-    let vocab = config.vocab("pt").unwrap().clone();
+    let vocab = config.vocab(lang).unwrap().clone();
     let (tx, _rx) = crossbeam_channel::unbounded();
     let mut pending = None;
     dispatch_spoken(&vocab, &config, spoken, &runner, &tx, &mut pending);
@@ -371,3 +375,6 @@ fn the_whole_vocabulary_dispatches_what_it_always_did() {
         panic!("{report}");
     }
 }
+
+#[path = "dispatch_phrase_tests.rs"]
+mod phrases;
