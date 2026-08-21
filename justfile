@@ -122,7 +122,10 @@ vocab:
     #!/usr/bin/env bash
     set -uo pipefail
     words_pt='envia|manda|cambio|pronto|cancela|limpa|descarta|nova linha|pula linha'
-    words_app='navegador|terminal|editor|chat|browser|firefox|chrome|chromium|opencode|oc-opencode|alacritty|vscode|code|discord|telegram|whatsapp'
+    # `code` is bounded because it is a word inside ordinary ones: it fired on
+    # `-acodec` and on "could not decode", neither of which names an app. The
+    # rest stay unbounded — nothing legitimate contains "whatsapp".
+    words_app='navegador|terminal|editor|chat|browser|firefox|chrome|chromium|opencode|oc-opencode|alacritty|vscode|\\bcode\\b|discord|telegram|whatsapp'
     # Test code legitimately contains vocabulary — it is what the matcher tests
     # assert against. Strip #[cfg(test)] blocks before scanning.
     scan=$(mktemp -d)

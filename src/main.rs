@@ -29,6 +29,7 @@ mod session;
 mod translate;
 mod ui;
 mod voicelock;
+mod voiceprobe;
 mod voices;
 mod wm;
 

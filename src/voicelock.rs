@@ -29,6 +29,13 @@ pub const ENROL_SECONDS: f32 = 15.0;
 /// Below this an embedding is too unstable to judge — see the module note on
 /// why the answer is to let it through rather than to drop it.
 pub const MIN_JUDGE_SECONDS: f32 = 1.0;
+/// Enrolment is pickier, and can afford to be: judging has to answer about
+/// whatever you just said, while enrolling can simply wait for a better
+/// stretch. Measured on a 24 s recording of one person: segments of 2.4 s and
+/// up sat 0.69–0.86 from their own centre, while those under 2 s scattered
+/// across 0.26–0.68. Same voice, same microphone — the short ones carry too
+/// little to place anybody.
+pub const MIN_ENROL_SECONDS: f32 = 2.0;
 /// How far below your own worst measured sample the bar sits. Room for a
 /// different chair, a cold, a hand near the microphone.
 const MARGIN: f32 = 0.05;
@@ -111,6 +118,12 @@ fn owner_only(p: &std::path::Path) {
     }
     #[cfg(not(unix))]
     let _ = p;
+}
+
+/// The lock as it sits on disk, for tools that want to compare against it
+/// without owning the microphone.
+pub fn stored() -> Option<Store> {
+    Store::load()
 }
 
 /// Speech collected so far, and the embeddings taken from it.
@@ -203,7 +216,7 @@ impl VoiceLock {
                 }
             }
         }
-        let feats = fbank::compute(samples);
+        let feats = fbank::compute_unit(samples);
         let frames = fbank::frame_count(samples.len());
         self.model.as_mut()?.embed(&feats, frames).ok()
     }
@@ -240,7 +253,7 @@ impl VoiceLock {
     fn enrol(&mut self, samples: &[f32], seconds: f32) -> Verdict {
         // Short segments are noise for a centroid in a way they are not for a
         // yes/no: here there is no cost to waiting for a better one.
-        if seconds < MIN_JUDGE_SECONDS {
+        if seconds < MIN_ENROL_SECONDS {
             let progress = self
                 .enrolment
                 .as_ref()
@@ -300,6 +313,7 @@ pub fn build(embeddings: &[Vec<f32>]) -> Option<Store> {
     let centroid = mean(embeddings)?;
     let mut worst = f32::MAX;
     let mut total = 0.0;
+    let mut scores: Vec<f32> = Vec::with_capacity(embeddings.len());
     for (i, e) in embeddings.iter().enumerate() {
         let others: Vec<Vec<f32>> = embeddings
             .iter()
@@ -311,13 +325,27 @@ pub fn build(embeddings: &[Vec<f32>]) -> Option<Store> {
             continue;
         };
         let s = cosine(e, &without);
+        scores.push(s);
         worst = worst.min(s);
         total += s;
     }
     let mean_self = total / embeddings.len() as f32;
+    // The bar comes from the worst sample *after* discarding one, when there
+    // are enough to afford it. Measured: in a 24 s recording of a single
+    // person, one 1.8 s stretch scored 0.26 against the others while the rest
+    // sat between 0.50 and 0.86. Taking the raw minimum would have set the
+    // bar at 0.21 and let in anybody at all — one bad stretch of your own
+    // voice should not decide who else gets in.
+    let floor = if scores.len() >= 4 {
+        let mut sorted = scores.clone();
+        sorted.sort_by(f32::total_cmp);
+        sorted[1]
+    } else {
+        worst
+    };
     Some(Store {
         centroid,
-        threshold: (worst - MARGIN).clamp(0.0, 1.0),
+        threshold: (floor - MARGIN).clamp(0.0, 1.0),
         segments: embeddings.len(),
         self_worst: worst,
         self_mean: mean_self,

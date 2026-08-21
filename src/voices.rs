@@ -80,7 +80,8 @@ impl SpeakerModel {
                 feats.len()
             ));
         }
-        let tensor = ort::value::Tensor::from_array(([1, frames, MEL_BANDS], feats.to_vec()))
+        let normalised = cepstral_mean_normalise(feats, frames);
+        let tensor = ort::value::Tensor::from_array(([1, frames, MEL_BANDS], normalised))
             .context("building input tensor")?;
         let outputs = self
             .session
@@ -91,6 +92,34 @@ impl SpeakerModel {
             .context("reading embedding")?;
         Ok(data.to_vec())
     }
+}
+
+/// Subtract each band's mean over time — the step between the filterbank and
+/// the model, and the one the reference test could never have caught.
+///
+/// CAM++ is trained on features normalised this way; its exporters do it
+/// outside the graph, so a caller that skips it hands the model something from
+/// a distribution it has never seen. It does not fail loudly. Measured here:
+/// six segments of one person scored 0.32 against each other without this,
+/// which reads as six different people.
+///
+/// It also makes the amplitude convention stop mattering. Kaldi works on
+/// int16-range samples and this program works in ±1, a constant factor of
+/// 32768 — which is a constant offset once logged, and a constant offset is
+/// exactly what subtracting the mean removes.
+fn cepstral_mean_normalise(feats: &[f32], frames: usize) -> Vec<f32> {
+    let mut out = feats.to_vec();
+    for band in 0..MEL_BANDS {
+        let mut sum = 0.0f32;
+        for f in 0..frames {
+            sum += feats[f * MEL_BANDS + band];
+        }
+        let mean = sum / frames as f32;
+        for f in 0..frames {
+            out[f * MEL_BANDS + band] -= mean;
+        }
+    }
+    out
 }
 
 fn tensor_dims(ty: &ort::value::ValueType) -> Vec<Option<i64>> {

@@ -63,6 +63,18 @@ pub fn run_subcommand(arg: &str) -> Result<bool> {
             Ok(true)
         }
         "voices" => {
+            // With a file: measure that recording against the stored voice.
+            // Without: report what the model declares, which is the check that
+            // came first and still answers a different question.
+            if let Some(file) = std::env::args().nth(2) {
+                let runner: std::sync::Arc<dyn crate::process::CommandRunner> =
+                    std::sync::Arc::new(crate::process::SystemRunner);
+                let config = crate::config::Config::load();
+                let seg = config.segmentation(false);
+                let hang_frames = (seg.hang_ms as usize * 16_000 / 1000) / crate::VAD_FRAME_SAMPLES;
+                crate::voiceprobe::report(&runner, std::path::Path::new(&file), hang_frames)?;
+                return Ok(true);
+            }
             crate::voices::report()?;
             Ok(true)
         }

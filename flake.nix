@@ -35,6 +35,10 @@
             curl
             whisper-cpp
             pipewire
+            # Decoding a recording for `oc-voice voices <arquivo>`. Only the
+            # file path needs it — enrolling from the microphone, which is how
+            # the button does it, decodes nothing.
+            ffmpeg
           ];
           buildInputs = with pkgs; [
             # audio

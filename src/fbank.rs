@@ -176,6 +176,22 @@ fn fft(re: &mut [f64], im: &mut [f64]) {
 /// before pre-emphasis, pre-emphasis before windowing, and the first sample of
 /// the frame pre-emphasised against itself rather than against the previous
 /// frame's tail.
+/// Kaldi's amplitude convention: samples in int16 range, not in ±1.
+///
+/// This is not cosmetic. `LOG_FLOOR` is an absolute floor on the power, so it
+/// is scale-dependent: at ±1 the quiet bands of real speech clamp to it and
+/// come out as one constant, and the information in them is gone. At int16
+/// range nothing reaches it. Kaldi reads int16 wavs into floats without
+/// dividing, which is why its floor is where it is.
+pub const KALDI_FULL_SCALE: f32 = 32_768.0;
+
+/// `compute`, for callers holding audio in ±1 — which is everything in this
+/// program, because that is what cpal and ffmpeg hand over.
+pub fn compute_unit(samples: &[f32]) -> Vec<f32> {
+    let scaled: Vec<f32> = samples.iter().map(|s| s * KALDI_FULL_SCALE).collect();
+    compute(&scaled)
+}
+
 pub fn compute(samples: &[f32]) -> Vec<f32> {
     let (len, shift) = (frame_length(), frame_shift());
     let frames = frame_count(samples.len());
