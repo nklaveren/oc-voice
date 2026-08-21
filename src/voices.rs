@@ -155,19 +155,38 @@ pub fn report() -> Result<()> {
         fmt(&shape.output_dims)
     );
 
-    // Synthetic features, purely to prove the plumbing runs. Their embeddings
-    // are meaningless and are not reported as if they were not.
-    let frames = 200;
-    let flat = vec![0.0f32; frames * MEL_BANDS];
-    let sloped: Vec<f32> = (0..frames * MEL_BANDS)
-        .map(|i| (i % MEL_BANDS) as f32 / MEL_BANDS as f32)
-        .collect();
+    // Real features now, from `fbank`, on signals this program generates so
+    // the numbers are reproducible without shipping audio. Still not speech —
+    // a chirp is not a voice, and nothing here claims otherwise — but they go
+    // through the same extractor a microphone will, so the shapes, the frame
+    // count and the timing are the ones that will actually happen.
+    let tone = |f0: f64, f1: f64, seconds: f64| -> Vec<f32> {
+        let n = (seconds * crate::fbank::SAMPLE_RATE as f64) as usize;
+        let k = (f1 - f0) / seconds;
+        (0..n)
+            .map(|i| {
+                let t = i as f64 / crate::fbank::SAMPLE_RATE as f64;
+                (0.5 * (2.0 * std::f64::consts::PI * (f0 * t + 0.5 * k * t * t)).sin()) as f32
+            })
+            .collect()
+    };
+
+    let two_seconds = tone(50.0, 7800.0, 2.0);
+    let other = tone(300.0, 3000.0, 2.0);
+    let feats_a = crate::fbank::compute(&two_seconds);
+    let feats_b = crate::fbank::compute(&other);
+    let frames = crate::fbank::frame_count(two_seconds.len());
+    println!(
+        "\n  fbank: {} amostras -> {frames} quadros x {} bandas",
+        two_seconds.len(),
+        MEL_BANDS
+    );
 
     let start = std::time::Instant::now();
-    let a = model.embed(&flat, frames)?;
+    let a = model.embed(&feats_a, frames)?;
     let infer_ms = start.elapsed().as_millis();
     println!(
-        "\n{} dimensões em {infer_ms} ms sobre {frames} quadros",
+        "  {} dimensões em {infer_ms} ms sobre {frames} quadros",
         a.len()
     );
 
@@ -175,20 +194,21 @@ pub fn report() -> Result<()> {
     // stored centroid is only comparable to a future embedding if the model
     // returns the same vector for the same input. A graph with dropout left
     // in would score below 1.0 here, and every stored voice would rot.
-    let again = model.embed(&flat, frames)?;
-    let b = model.embed(&sloped, frames)?;
+    let again = model.embed(&feats_a, frames)?;
+    let b = model.embed(&feats_b, frames)?;
     println!(
         "  determinismo (mesma entrada duas vezes): {:.6}",
         cosine(&a, &again)
     );
     println!(
-        "  entrada diferente:                       {:.6}",
+        "  sinal diferente:                         {:.6}",
         cosine(&a, &b)
     );
-    println!("\n  (os vetores não significam nada — features sintéticas. O que");
-    println!("   isto prova é que o runtime aceita o modelo junto com o do VAD,");
-    println!("   qual é a dimensão real, e se o mesmo áudio dá sempre o mesmo");
-    println!("   vetor, que é a premissa de guardar voz em disco.)");
+    println!("\n  (dois chirps não são duas pessoas — este número não é um limiar.");
+    println!("   O que isto prova é que o extrator Kaldi alimenta o modelo, quanto");
+    println!("   custa por segmento, e se o mesmo áudio dá sempre o mesmo vetor,");
+    println!("   que é a premissa de guardar voz em disco. O limiar sai de vozes");
+    println!("   reais gravadas, e de nada menos que isso.)");
     Ok(())
 }
 

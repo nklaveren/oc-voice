@@ -18,6 +18,7 @@ mod cli;
 mod commands;
 mod config;
 mod control;
+mod fbank;
 mod input;
 mod ocr;
 mod ocrprobe;
