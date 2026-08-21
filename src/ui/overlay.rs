@@ -31,6 +31,7 @@ pub fn run_overlay(
         width: OVERLAY_W,
         height: OVERLAY_H,
         bottom_margin: OVERLAY_BOTTOM_MARGIN,
+        x_offset: 0.0,
     };
     let saved = state::Saved::load();
     if let Some(v) = saved.width {
@@ -41,6 +42,9 @@ pub fn run_overlay(
     }
     if let Some(v) = saved.bottom_margin {
         geometry.bottom_margin = v;
+    }
+    if let Some(v) = saved.x_offset {
+        geometry.x_offset = v;
     }
     let monitor = saved
         .monitor

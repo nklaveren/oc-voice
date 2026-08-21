@@ -99,6 +99,11 @@ pub struct Geometry {
     pub height: f32,
     /// Gap between the overlay and the bottom edge of its monitor.
     pub bottom_margin: f32,
+    /// Offset from the monitor's horizontal centre. Part of the geometry
+    /// because it is restored at startup like the rest — it was left out
+    /// once, and the overlay came back centred every launch no matter where
+    /// it had been dragged.
+    pub x_offset: f32,
 }
 
 /// The host this build uses.

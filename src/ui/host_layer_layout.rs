@@ -89,19 +89,39 @@ impl State {
             if let Some(x) = request.x_offset {
                 self.x_offset = x;
             }
-            // Anchored bottom and horizontally centred, so a positive left
-            // margin with an equal negative right one slides it right. There
-            // is no "move surface" in the protocol — position *is* the
-            // margins, which is why dragging has to be expressed this way.
-            let x = self.x_offset as i32;
-            layer.set_margin(0, -x, self.geometry.bottom_margin as i32, x);
-            layer.commit();
+            self.place(layer);
         }
         if let Some(step) = request.monitor_step {
+            // Rebuilding destroys the surface and makes a new one. With a
+            // single output the step lands on the same monitor, so doing it
+            // anyway was pure risk for no movement — and it took the overlay
+            // off screen, which is the worst possible outcome for a button
+            // whose honest answer is "there is nowhere to go".
+            let before = self.want_monitor.clone();
             self.step_monitor(step);
-            self.rebuild = true;
+            if self.want_monitor != before {
+                self.rebuild = true;
+            } else {
+                info!(monitor = %before, "no other output to move to");
+            }
             let _ = qh;
         }
+    }
+
+    /// Put the surface where the layout says.
+    ///
+    /// Anchored bottom-**left**, not bottom alone. With only `BOTTOM` the
+    /// compositor centres the surface and ignores horizontal margins
+    /// entirely, which is why dragging moved it up and down and never
+    /// sideways. Anchoring a side makes the margin an absolute position, and
+    /// centring becomes arithmetic this side does.
+    pub(super) fn place(&self, layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface) {
+        let centred = output_logical_size(&self.output, &self.want_monitor)
+            .map(|(ow, _)| (ow - self.geometry.width).max(0.0) / 2.0)
+            .unwrap_or(0.0);
+        let left = (centred + self.x_offset).max(0.0) as i32;
+        layer.set_margin(0, 0, self.geometry.bottom_margin as i32, left);
+        layer.commit();
     }
 
     /// Clamp a requested size to the output, and tell the UI what the

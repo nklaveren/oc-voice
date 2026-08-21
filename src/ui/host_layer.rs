@@ -95,7 +95,7 @@ impl OverlayHost for LayerShellHost {
             geometry: geom,
             want_monitor: self.monitor,
             ordered_outputs: Vec::new(),
-            x_offset: 0.0,
+            x_offset: geom.x_offset,
             rebuild: false,
             layer: None,
             fractional: None,
@@ -235,10 +235,12 @@ impl State {
             Some(NAMESPACE),
             output.as_ref(),
         );
-        layer.set_anchor(Anchor::BOTTOM);
+        // Bottom *and* left: a single anchor leaves the compositor free to
+        // centre the surface and drop horizontal margins, which is exactly
+        // what it does.
+        layer.set_anchor(Anchor::BOTTOM | Anchor::LEFT);
         layer.set_size(self.geometry.width as u32, self.geometry.height as u32);
-        let x = self.x_offset as i32;
-        layer.set_margin(0, -x, self.geometry.bottom_margin as i32, x);
+        self.place(&layer);
         // Never take the keyboard. The whole reason `nofocus` had to be a
         // window rule is that a toplevel takes focus by default and dictated
         // text then lands in the overlay instead of the window being written
