@@ -8,11 +8,24 @@ use super::*;
 
 impl OverlayApp {
     pub(super) fn draw(&mut self, ui: &mut egui::Ui) {
-        let panel_size = ui.available_size();
+        // The panel's own padding comes off the space it is given. Asking for
+        // the full `available_size()` *inside* a frame that then adds 32x24
+        // around it makes the content taller than the surface, and what falls
+        // off the bottom is the control row.
+        //
+        // It never showed under eframe: its CentralPanel had already taken a
+        // margin out of `available_size()`, so the overflow fitted in the
+        // slack. On a layer surface the Ui spans the whole thing and there is
+        // no slack — the drawing was relying on its host, which is exactly
+        // what the `OverlayHost` seam exists to stop.
+        const PAD_X: i8 = 16;
+        const PAD_Y: i8 = 12;
+        let padding = egui::vec2(PAD_X as f32 * 2.0, PAD_Y as f32 * 2.0);
+        let panel_size = (ui.available_size() - padding).max(egui::Vec2::ZERO);
         let bg = egui::Frame::new()
             .fill(egui::Color32::from_black_alpha(200))
             .corner_radius(10.0)
-            .inner_margin(egui::Margin::symmetric(16, 12));
+            .inner_margin(egui::Margin::symmetric(PAD_X, PAD_Y));
 
         bg.show(ui, |ui| {
             ui.set_min_size(panel_size);
