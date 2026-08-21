@@ -218,9 +218,9 @@ pub fn resolve<'a>(spoken: &str, controls: &'a [Control], threshold: f64) -> Vec
 /// carries. A browser is one window to the compositor, so this is the only
 /// bridge back from "the window I am in" to "the page I am on".
 pub fn focused_tab(runner: &Arc<dyn CommandRunner>, port: u16) -> Option<super::tabs::Tab> {
-    let output = runner.output("hyprctl", &["activewindow", "-j"]).ok()?;
-    let window: Value = serde_json::from_slice(&output.stdout).ok()?;
-    let title = matcher::normalize(window.get("title")?.as_str()?);
+    use crate::wm::backend::WmBackend;
+    let title =
+        matcher::normalize(&crate::wm::backend::Hyprctl::new(runner.clone()).focused_title()?);
     super::tabs::live_tabs(runner, port)
         .into_iter()
         .filter(|t| !t.debugger.is_empty())

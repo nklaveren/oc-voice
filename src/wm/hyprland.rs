@@ -1,5 +1,6 @@
 use crate::input::inject::{type_key, type_text};
 use crate::process::CommandRunner;
+use crate::wm::backend::WmBackend as _;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
@@ -7,9 +8,13 @@ use tracing::info;
 /// Focus a window by its hyprctl address, then type the text into it.
 pub fn focus_address_and_type(runner: &Arc<dyn CommandRunner>, address: &str, text: &str) {
     if !address.is_empty() {
-        let _ = runner.output(
-            "hyprctl",
-            &["dispatch", "focuswindow", &format!("address:{address}")],
+        // Through the seam like every other window command: this is the last
+        // one that spelled hyprctl out by hand, and a port would have found
+        // it only by grepping.
+        crate::wm::backend::Hyprctl::new(runner.clone()).dispatch(
+            &crate::wm::backend::WmAction::FocusWindow {
+                address: address.to_string(),
+            },
         );
         std::thread::sleep(Duration::from_millis(100));
     }

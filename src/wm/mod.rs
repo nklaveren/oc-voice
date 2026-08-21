@@ -1,3 +1,4 @@
+pub mod backend;
 pub mod dispatch;
 pub mod hyprland;
 pub mod page;

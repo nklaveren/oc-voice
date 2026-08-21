@@ -774,7 +774,9 @@ log:              overlay output chosen monitor=Some("HDMI-A-1")
 - ~~**Escala fracionária.**~~ ✅ Feito. `wp_fractional_scale_v1` + `wp_viewporter`, medido no painel 1.67: o compositor reporta `200/120 = 1.6666667` e o buffer virou **1500×583** — os pixels físicos exatos de 900×350 lógicos. Antes eram 1800×700 reduzidos por software para 1503×585. Agora desenha 1:1, sem reamostragem. Os dois protocolos vêm em par: com destino de viewport definido, o `set_buffer_scale` tem que ficar em 1, senão as duas correções se multiplicam.
 - **Render.** A superfície existe com geometria; se pinta ou é retângulo vazio não foi possível verificar por captura — o `grim` desta máquina está com o screencopy travado.
 
-**O que falta para tirar o "parcial"** — e não é código: rodar como padrão por tempo suficiente para confiar. Só então `host_toplevel.rs` some, com as ~206 linhas e a classe de bug que mora nelas, que é o aceite escrito aqui.
+**Agora é o padrão** (`default = ["cuda", "layer-shell"]`), a pedido, com a ressalva de que problemas serão reportados em uso. Um compositor sem o protocolo — GNOME não o implementa — **cai para o host toplevel** em vez de falhar: virar padrão não pode significar overlay que não aparece.
+
+**O que falta para tirar o "parcial"** — e não é código: rodar assim por tempo suficiente para confiar. Só então `host_toplevel.rs` some, com as ~206 linhas e a classe de bug que mora nelas, que é o aceite escrito aqui.
 
 A escolha é de **runtime** (`[overlay] surface = "auto" | "layer" | "toplevel"`), não de compilação, justamente para dar para comparar os dois hosts sem rebuild.
 
@@ -804,7 +806,19 @@ Custo conhecido: o gate `vocab` baniu o literal `key code` (contém "code", nome
 
 "Parcial": a captura depende de o usuário rotear o áudio do sistema para o dispositivo virtual, e não há como detectar que ele não o fez — o VAD simplesmente nunca vê fala.
 
-### M8.4 — WM via Aerospace
+### M8.4 — Costura de window manager ✅ parcial (falta o backend Aerospace)
+
+`WmAction` é a costura: um conjunto **fechado** de 12 verbos, porque o vocabulário falado é fechado. Acima dela a gramática decide *o que* deve acontecer; abaixo, um backend decide *como dizer*. Antes as duas eram a mesma coisa — a gramática produzia vetores de argumento do `hyprctl` — então portar significava editar a gramática.
+
+Leituras entram no contrato pelo mesmo motivo: o resolvedor pontua contra `class` e `title`, e de onde vieram não é assunto dele.
+
+**Prova de que nada mudou:** o snapshot de bindings ficou **byte a byte idêntico** depois do refactor. Ele foi construído em `1c226c1` exatamente para isto.
+
+Sobrou zero `hyprctl` de comando de janela fora de `backend.rs`. Os 7 de [`host_toplevel.rs`](src/ui/host_toplevel.rs) ficam onde estão de propósito: são a compensação *daquele host*, escopada por `Correction::HyprlandFloat`.
+
+**Falta o `AerospaceBackend`.** Escrevê-lo agora seria inventar o formato do `aerospace list-windows --json` sem uma máquina para conferir, e este projeto não fixa fixture imaginada. Precisa de uma captura real.
+
+### M8.4b — Aerospace, quando houver um Mac para medir
 
 O que falta para o modo Enter no mac disparar comandos de janela. `hyprctl` → [Aerospace](https://github.com/nikitabobko/AeroSpace) (CLI com `--json` estável; yabai exigiria desabilitar parcialmente o SIP). O resolvedor de alvos em [`src/wm/target.rs`](src/wm/target.rs) roda sobre structs próprias preenchidas do JSON do hyprctl: portar é escrever o parser do JSON do aerospace para as mesmas structs, mais um fixture em `tests/fixtures/`. Padrão do M8.2: `trait WmBackend`, `HyprctlBackend` intacto, `AerospaceBackend` novo.
 

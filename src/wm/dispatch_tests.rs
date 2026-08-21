@@ -175,10 +175,15 @@ fn closing_by_name_closes_that_window_and_not_the_focused_one() {
     // never consulted — though the resolver could see it.
     let (calls, pending) = say("fechar brave", CLIENTS);
     assert!(calls.is_empty(), "closing still waits for a yes");
-    let Some(PendingAction::Dispatch { args, .. }) = pending else {
+    let Some(PendingAction::Dispatch { action, .. }) = pending else {
         panic!("naming a window to close must arm a confirmation");
     };
-    assert_eq!(args, ["dispatch", "closewindow", "address:0xb1"]);
+    assert_eq!(
+        action,
+        crate::wm::backend::WmAction::CloseWindow {
+            address: "0xb1".into()
+        }
+    );
 }
 
 #[test]

@@ -78,40 +78,89 @@ pub fn default_host(
     #[cfg(feature = "layer-shell")]
     if matches!(surface, "auto" | "layer") {
         tracing::info!(surface, "overlay on a wlr layer surface");
-        return Box::new(crate::ui::host_layer::LayerShellHost { geometry, monitor });
+        return Box::new(crate::ui::host_layer::LayerShellHost {
+            geometry,
+            monitor: monitor.clone(),
+            // Not every compositor implements wlr-layer-shell — GNOME does
+            // not. Now that this is the default, a missing protocol has to
+            // mean "use the other host", not "the overlay never appears".
+            fallback: Some(Box::new(EframeHost {
+                geometry,
+                correction: Correction::for_this_platform(runner, monitor),
+            })),
+        });
     }
     if surface == "layer" {
         tracing::warn!("layer surface asked for but not compiled in; using the toplevel host");
     }
     Box::new(EframeHost {
         geometry,
-        runner,
-        monitor,
+        // Whether a toplevel needs correcting, and how, is a property of the
+        // compositor — not of eframe. On macOS or Windows the window manager
+        // does not tile this window and there is nothing to undo, so nothing
+        // is attached and no `hyprctl` is ever spelled out on a machine that
+        // has never heard of it.
+        correction: Correction::for_this_platform(runner, monitor),
     })
 }
 
-/// Today's default host: an `xdg_toplevel` driven by eframe over winit.
+/// What a toplevel needs done to it after the compositor has placed it.
 ///
 /// A toplevel is the surface type that means "I am an application window", so
-/// the compositor tiles it and focuses it, and `try_hyprland_float` undoes
-/// that from outside afterwards. **That compensation is started here**, by the
-/// host that causes the problem — a layer surface never tiles and never takes
-/// focus, so its host will start nothing. That is the whole argument for M6.1,
-/// expressed as a difference between two impls rather than a flag.
+/// a tiling compositor tiles it and focuses it, and something has to undo that
+/// from outside afterwards. **Which compositor, and therefore which fix, is
+/// not eframe's business** — eframe runs on three platforms and only one of
+/// them has this problem. A layer surface has none of it by construction,
+/// which is the argument for M6.1.
+pub enum Correction {
+    /// Nothing to undo: the window manager does not tile this window.
+    None,
+    /// Hyprland: poll for the window and set float/pin/position.
+    HyprlandFloat {
+        runner: std::sync::Arc<dyn crate::process::CommandRunner>,
+        /// Which monitor the overlay should be pinned to, by name or position.
+        monitor: String,
+    },
+}
+
+impl Correction {
+    /// The one place a target OS is named. Everything else sees `Correction`.
+    pub fn for_this_platform(
+        runner: std::sync::Arc<dyn crate::process::CommandRunner>,
+        monitor: String,
+    ) -> Self {
+        if cfg!(target_os = "linux") {
+            // Still a guess about *which* Linux compositor, which is why the
+            // correction itself checks for hyprctl before doing anything.
+            Correction::HyprlandFloat { runner, monitor }
+        } else {
+            Correction::None
+        }
+    }
+
+    fn start(&self, geometry: &Geometry) {
+        match self {
+            Correction::None => {}
+            Correction::HyprlandFloat { runner, monitor } => {
+                crate::ui::host_toplevel::try_hyprland_float(
+                    runner.clone(),
+                    monitor.clone(),
+                    geometry,
+                );
+            }
+        }
+    }
+}
+
+/// Today's default host: an `xdg_toplevel` driven by eframe over winit.
 pub struct EframeHost {
     pub geometry: Geometry,
-    pub runner: std::sync::Arc<dyn crate::process::CommandRunner>,
-    /// Which monitor the overlay should be pinned to, by name or position.
-    pub monitor: String,
+    pub correction: Correction,
 }
 
 impl OverlayHost for EframeHost {
     fn run(self: Box<Self>, ui: Box<dyn OverlayUi>) -> Result<()> {
-        crate::ui::host_toplevel::try_hyprland_float(
-            self.runner.clone(),
-            self.monitor.clone(),
-            &self.geometry,
-        );
+        self.correction.start(&self.geometry);
 
         let viewport = egui::ViewportBuilder::default()
             .with_title("oc-voice")

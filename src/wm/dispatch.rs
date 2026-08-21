@@ -11,7 +11,6 @@
 
 use std::sync::Arc;
 
-use serde::Deserialize;
 use tracing::{debug, info};
 
 use crate::commands::matcher::{self, Template};
@@ -19,25 +18,14 @@ use crate::commands::PendingAction;
 use crate::config::{Config, LangVocab};
 use crate::process::CommandRunner;
 use crate::ui::stdout::emit;
+use crate::wm::backend::{Hyprctl, MonitorInfo, WmAction, WmBackend};
 use crate::wm::tabs;
 use crate::wm::target;
 use crate::TranscriptEvent;
 use crossbeam_channel::Sender;
 
-#[derive(Debug, Clone, Deserialize)]
-struct MonitorInfo {
-    name: String,
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    x: i64,
-}
-
 fn live_monitors(runner: &Arc<dyn CommandRunner>) -> Vec<MonitorInfo> {
-    let Ok(output) = runner.output("hyprctl", &["monitors", "-j"]) else {
-        return Vec::new();
-    };
-    serde_json::from_slice(&output.stdout).unwrap_or_default()
+    Hyprctl::new(runner.clone()).monitors()
 }
 
 /// Position words resolve against the actual x layout, not against hyprctl's
@@ -104,10 +92,12 @@ fn resolve_direction(spoken: &str, vocab: &LangVocab, threshold: f64) -> Option<
     matcher::match_exact(spoken, &words, threshold).map(|(word, _)| vocab.directions[word].clone())
 }
 
-fn run_dispatch(runner: &Arc<dyn CommandRunner>, tx: &Sender<TranscriptEvent>, args: &[&str]) {
-    let _ = runner.output("hyprctl", args);
-    info!(?args, "dispatched");
-    emit(tx, TranscriptEvent::notice(format!("[{}]", args.join(" "))));
+fn run_dispatch(runner: &Arc<dyn CommandRunner>, tx: &Sender<TranscriptEvent>, action: &WmAction) {
+    Hyprctl::new(runner.clone()).dispatch(action);
+    emit(
+        tx,
+        TranscriptEvent::notice(format!("[{}]", Hyprctl::args(action).join(" "))),
+    );
 }
 
 /// Interpret one utterance as a WM command. Unrecognized speech is dropped —
@@ -202,7 +192,7 @@ fn execute_action(
         // with no Photoshop open asked for confirmation, ran `hyprctl` with no
         // arguments on yes, and swallowed the sentence either way. A question
         // whose answer does nothing is worse than no question.
-        let Some(args) = dispatch_args(action, slot, vocab, config, runner) else {
+        let Some(act) = dispatch_args(action, slot, vocab, config, runner) else {
             debug!(action, ?slot, "slot did not resolve; nothing to confirm");
             return false;
         };
@@ -215,7 +205,7 @@ fn execute_action(
         };
         emit(tx, TranscriptEvent::AwaitingConfirmation(what));
         *pending = Some(PendingAction::Dispatch {
-            args,
+            action: act,
             label: action.to_string(),
         });
         return true;
@@ -226,9 +216,8 @@ fn execute_action(
     if let Some(done) = crate::wm::page::act_on_focused(action, slot, config, runner, tx) {
         return done;
     }
-    if let Some(args) = dispatch_args(action, slot, vocab, config, runner) {
-        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        run_dispatch(runner, tx, &refs);
+    if let Some(act) = dispatch_args(action, slot, vocab, config, runner) {
+        run_dispatch(runner, tx, &act);
         true
     } else {
         debug!(action, ?slot, "slot did not resolve; nothing dispatched");
@@ -244,12 +233,12 @@ fn dispatch_args(
     vocab: &LangVocab,
     config: &Config,
     runner: &Arc<dyn CommandRunner>,
-) -> Option<Vec<String>> {
+) -> Option<WmAction> {
     let threshold = config.threshold();
-    let args: Vec<String> = match action {
-        "fullscreen" => vec!["dispatch".into(), "fullscreen".into()],
-        "toggle_floating" => vec!["dispatch".into(), "togglefloating".into()],
-        "kill_active" => vec!["dispatch".into(), "killactive".into()],
+    let act: WmAction = match action {
+        "fullscreen" => WmAction::Fullscreen,
+        "toggle_floating" => WmAction::ToggleFloating,
+        "kill_active" => WmAction::KillActive,
         // Close the window you *name*, as opposed to the one you happen to be
         // looking at. Goes through the same resolver as focusing, so an
         // unfindable name closes nothing at all — which is the only acceptable
@@ -257,16 +246,14 @@ fn dispatch_args(
         "close_window" => {
             let windows = target::live_windows(runner);
             let resolved = target::resolve(slot?, &vocab.targets, &windows, threshold)?;
-            vec![
-                "dispatch".into(),
-                "closewindow".into(),
-                format!("address:{}", resolved.address),
-            ]
+            WmAction::CloseWindow {
+                address: resolved.address,
+            }
         }
         // Cycle within the current workspace. `cyclenext` wraps, so these are
         // the two directions of one motion rather than two behaviours.
-        "next_window" => vec!["dispatch".into(), "cyclenext".into()],
-        "previous_window" => vec!["dispatch".into(), "cyclenext".into(), "prev".into()],
+        "next_window" => WmAction::CycleWindow { previous: false },
+        "previous_window" => WmAction::CycleWindow { previous: true },
         "move_focus" => {
             let dir = resolve_direction(slot?, vocab, threshold)?;
             // hyprctl movefocus only takes l/r/u/d — "janela do centro" is
@@ -274,34 +261,32 @@ fn dispatch_args(
             if !["l", "r", "u", "d"].contains(&dir.as_str()) {
                 return None;
             }
-            vec!["dispatch".into(), "movefocus".into(), dir]
+            WmAction::MoveFocus { direction: dir }
         }
         "workspace" => {
             let n = resolve_number(slot?, vocab, threshold)?;
-            vec!["dispatch".into(), "workspace".into(), n.to_string()]
+            WmAction::Workspace { number: n }
         }
         "move_to_workspace" => {
             let n = resolve_number(slot?, vocab, threshold)?;
-            vec!["dispatch".into(), "movetoworkspace".into(), n.to_string()]
+            WmAction::MoveToWorkspace { number: n }
         }
         "focus_monitor" => {
             let dir = resolve_direction(slot?, vocab, threshold)?;
             let name = monitor_by_position(&live_monitors(runner), &dir)?;
-            vec!["dispatch".into(), "focusmonitor".into(), name]
+            WmAction::FocusMonitor { name }
         }
         "focus_monitor_name" => {
             let name = monitor_by_name(slot?, vocab, &live_monitors(runner), threshold)?;
-            vec!["dispatch".into(), "focusmonitor".into(), name]
+            WmAction::FocusMonitor { name }
         }
         "focus_window" => {
             let spoken = slot?;
             let windows = target::live_windows(runner);
             if let Some(resolved) = target::resolve(spoken, &vocab.targets, &windows, threshold) {
-                return Some(vec![
-                    "dispatch".into(),
-                    "focuswindow".into(),
-                    format!("address:{}", resolved.address),
-                ]);
+                return Some(WmAction::FocusWindow {
+                    address: resolved.address,
+                });
             }
             // No window answers to it. Before giving up, ask the browser: a
             // whole browser is one window to the compositor, so anything kept
@@ -312,7 +297,7 @@ fn dispatch_args(
         }
         _ => return None,
     };
-    Some(args)
+    Some(act)
 }
 
 /// A tab title is arbitrary text that changes with whatever page is loaded,
@@ -332,7 +317,7 @@ fn focus_browser_tab(
     spoken: &str,
     config: &Config,
     runner: &Arc<dyn CommandRunner>,
-) -> Option<Vec<String>> {
+) -> Option<WmAction> {
     let port = config.browser_port()?;
     let tabs = tabs::live_tabs(runner, port);
     let tab = tabs::resolve(spoken, &tabs, TAB_THRESHOLD)?;
@@ -351,11 +336,9 @@ fn focus_browser_tab(
         !wanted.is_empty() && title.contains(&wanted)
     })?;
     info!(tab = %tab.title, class = %owner.class, "raised a page inside a window");
-    Some(vec![
-        "dispatch".into(),
-        "focuswindow".into(),
-        format!("address:{}", owner.address),
-    ])
+    Some(WmAction::FocusWindow {
+        address: owner.address.clone(),
+    })
 }
 
 #[cfg(test)]

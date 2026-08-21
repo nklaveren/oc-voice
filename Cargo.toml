@@ -70,14 +70,16 @@ egui_glow = { version = "0.34", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 
 [features]
-default = ["cuda"]
+default = ["cuda", "layer-shell"]
 cuda = ["whisper-rs/cuda"]
 # macOS GPU path: whisper.cpp Metal backend
 metal = ["whisper-rs/metal"]
 cpu = []
-# Draw the overlay on a zwlr_layer_shell_v1 surface (M6.1). Off by default
-# until it has proven pointer input and fractional scaling on real hardware —
-# the eframe host stays the one that ships.
+# Draw the overlay on a zwlr_layer_shell_v1 surface (M6.1). On by default
+# since both open questions were answered on real hardware: pointer input
+# reaches egui, and fractional scaling draws 1:1 on a 1.67x panel. A
+# compositor without the protocol falls back to the toplevel host at startup
+# rather than failing, so shipping this cannot make the overlay disappear.
 layer-shell = [
     "dep:smithay-client-toolkit",
     "dep:wayland-protocols",

@@ -58,6 +58,10 @@ pub struct LayerShellHost {
     pub geometry: Geometry,
     /// `middle` / `left` / `right` / `focused` / a connector name.
     pub monitor: String,
+    /// Where to go when this compositor has no layer shell. Taking the whole
+    /// overlay down over a protocol the machine simply does not implement
+    /// would be the worst possible way to ship a default.
+    pub fallback: Option<Box<dyn OverlayHost>>,
 }
 
 impl OverlayHost for LayerShellHost {
@@ -69,8 +73,16 @@ impl OverlayHost for LayerShellHost {
 
         let compositor = CompositorState::bind(&globals, &qh)
             .map_err(|e| anyhow!("wl_compositor unavailable: {e}"))?;
-        let shell = LayerShell::bind(&globals, &qh)
-            .map_err(|e| anyhow!("this compositor has no wlr-layer-shell: {e}"))?;
+        let shell = match LayerShell::bind(&globals, &qh) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(error = %e, "no wlr-layer-shell here; falling back to a toplevel window");
+                return match self.fallback {
+                    Some(host) => host.run(ui),
+                    None => Err(anyhow!("this compositor has no wlr-layer-shell: {e}")),
+                };
+            }
+        };
 
         let mut state = State {
             registry: RegistryState::new(&globals),

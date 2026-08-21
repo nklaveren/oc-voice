@@ -62,10 +62,8 @@ pub struct ResolvedTarget {
 
 /// The live window list from `hyprctl clients -j`.
 pub fn live_windows(runner: &Arc<dyn CommandRunner>) -> Vec<WindowInfo> {
-    let Ok(output) = runner.output("hyprctl", &["clients", "-j"]) else {
-        return Vec::new();
-    };
-    serde_json::from_slice(&output.stdout).unwrap_or_default()
+    use crate::wm::backend::WmBackend;
+    crate::wm::backend::Hyprctl::new(runner.clone()).windows()
 }
 
 fn tokens(text: &str) -> Vec<String> {

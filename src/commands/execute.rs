@@ -25,9 +25,13 @@ pub enum PendingAction {
     /// Send the buffered text to the currently focused window — the fallback
     /// when no window matched the spoken target.
     SendToFocused { display: String, inject: String },
-    /// A WM dispatch (M3.1), e.g. killactive.
+    /// A window-manager action (M3.1), e.g. killactive. Held as the decision
+    /// rather than as one backend's argument vector — see `wm::backend`.
     #[allow(dead_code)] // constructed by wm::dispatch from M3.1 on
-    Dispatch { args: Vec<String>, label: String },
+    Dispatch {
+        action: crate::wm::backend::WmAction,
+        label: String,
+    },
 }
 
 /// Consume a pending confirmation if the utterance answers it. Returns true
@@ -62,9 +66,9 @@ fn try_settle_pending(
                 type_text(&**runner, &inject);
                 type_key(&**runner, "Return");
             }
-            PendingAction::Dispatch { args, label } => {
-                let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                let _ = runner.output("hyprctl", &arg_refs);
+            PendingAction::Dispatch { action, label } => {
+                use crate::wm::backend::WmBackend;
+                crate::wm::backend::Hyprctl::new(runner.clone()).dispatch(&action);
                 emit(tx, TranscriptEvent::notice(format!("[{label}]")));
             }
         }
