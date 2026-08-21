@@ -301,3 +301,6 @@ fn live_pipeline_does_not_set_failure_state() {
     assert!(!app.pipeline_failed);
     assert_eq!(app.partial_system, "hello");
 }
+
+#[path = "overlay_interaction_tests.rs"]
+mod interaction;

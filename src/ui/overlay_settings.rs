@@ -171,6 +171,10 @@ impl OverlayApp {
         ui.add_space(4.0);
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
+            .scroll_source(
+                egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL
+                    | egui::containers::scroll_area::ScrollSource::SCROLL_BAR,
+            )
             .show(ui, |ui| {
                 let (max_w, max_h, _) = self.bounds();
                 ui.add(

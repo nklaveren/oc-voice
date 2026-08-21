@@ -68,9 +68,24 @@ impl OverlayApp {
 
         // Dragging the panel moves the overlay. There is no title bar to
         // grab and no window manager to grab it with, so the panel itself is
-        // the handle — anywhere that is not a widget, since egui gives the
-        // widgets the pointer first.
-        let dragged = bg.show(ui, |ui| {
+        // the handle.
+        //
+        // Registered **before** the contents, which is the whole trick. egui
+        // resolves a press to the last widget registered under the pointer,
+        // and when that one senses drag but not click it suppresses the click
+        // outright — `hit_test_on_close`: "the top thing senses only drags, so
+        // we ignore the click-widget". Added after the contents, as it was,
+        // this handle covered the panel and swallowed every button on it:
+        // measured on the running overlay, where no button would even
+        // highlight anywhere on the surface, while the sliders — which sense
+        // drag themselves — still worked. Registered first, it is the big
+        // background egui expects to find under small widgets.
+        let handle = ui.interact(
+            ui.max_rect(),
+            ui.id().with("overlay-drag"),
+            egui::Sense::drag(),
+        );
+        bg.show(ui, |ui| {
             ui.set_min_size(panel_size);
             ui.set_width(panel_size.x);
 
@@ -145,6 +160,13 @@ impl OverlayApp {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .stick_to_bottom(true)
+                        // Without this the scroll area is the drag target
+                        // over most of the panel and there is nowhere left to
+                        // grab it by. The wheel and the bar still scroll.
+                        .scroll_source(
+                            egui::containers::scroll_area::ScrollSource::MOUSE_WHEEL
+                                | egui::containers::scroll_area::ScrollSource::SCROLL_BAR,
+                        )
                         .max_height(scroll_height)
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
@@ -311,10 +333,31 @@ impl OverlayApp {
                             .size(14.0),
                         );
                     }
+                    // Closing. Pinned to the right edge, as far from the
+                    // controls you reach for during a call as the row allows —
+                    // it is the one button here that ends the session.
+                    //
+                    // Nothing is lost to a misclick: the record is written as
+                    // the session runs, and clearing `running` is the same
+                    // shutdown the pipeline itself asks for.
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        style_controls(ui);
+                        // ASCII, for the third time in this file: U+2715 drew
+                        // an empty box, exactly as the record dot and the
+                        // translation arrow did. Red ink rather than a red
+                        // fill, unlike `Parar` — that one reports a *state*
+                        // nobody should have to read twice, this one is an
+                        // action, and a fixed fill is the one thing that
+                        // cannot show it is under the pointer.
+                        let quit =
+                            egui::Button::new(egui::RichText::new(" X ").color(DANGER).strong());
+                        if ui.add(quit).on_hover_text("encerrar").clicked() {
+                            self.running.store(false, Ordering::SeqCst);
+                        }
+                    });
                 });
             });
         });
-        let handle = dragged.response.interact(egui::Sense::drag());
         if handle.dragged() {
             self.drag_by(handle.drag_delta());
         }
