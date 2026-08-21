@@ -251,3 +251,58 @@ pub fn report(runner: &Arc<dyn CommandRunner>, path: &Path, hang_frames: usize) 
     }
     Ok(())
 }
+
+/// Build the lock from a recording — `oc-voice voices --enrol <arquivo>`.
+///
+/// The button in Settings enrols from the microphone, and that costs fifteen
+/// seconds of talking every single time the lock has to be rebuilt — which is
+/// often, because every change to the extractor invalidates the stored
+/// centroid. Worse, it leaves no way to ask *why* a lock came out the way it
+/// did: the audio it was built from is gone the moment it is used.
+///
+/// A file fixes both. The same enrolment, from a recording that stays: it can
+/// be re-run after a change, compared against the last one, and handed to the
+/// probe above to see what it would let through.
+pub fn enrol(runner: &Arc<dyn CommandRunner>, path: &Path, hang_frames: usize) -> Result<()> {
+    println!("decodificando {}", path.display());
+    let samples = decode(runner, path)?;
+    let segs = segments(&samples, hang_frames)?;
+    let mut model = SpeakerModel::load(&voicelock::default_model_path())?;
+    let embedded = embed_all(&mut model, &segs);
+
+    let speech: f32 = embedded.iter().map(|(i, _)| segs[*i].seconds).sum();
+    println!(
+        "  {:.1}s utilizáveis em {} trecho(s) de {}s ou mais",
+        speech,
+        embedded.len(),
+        voicelock::MIN_ENROL_SECONDS
+    );
+    if speech < voicelock::ENROL_SECONDS {
+        return Err(anyhow!(
+            "só {speech:.1}s de fala aproveitável — a gravação precisa de pelo menos {}s",
+            voicelock::ENROL_SECONDS
+        ));
+    }
+    // Not the same requirement as the seconds, and it is the one that catches
+    // the recording made in a single unbroken breath: the bar is derived from
+    // how much the stretches disagree with each other, so there have to be
+    // stretches.
+    if embedded.len() < voicelock::MIN_ENROL_SEGMENTS {
+        return Err(anyhow!(
+            "só {} trecho(s) separados — são precisos {}. Fale em frases, com pausas entre elas.",
+            embedded.len(),
+            voicelock::MIN_ENROL_SEGMENTS
+        ));
+    }
+
+    let vectors: Vec<Vec<f32>> = embedded.into_iter().map(|(_, e)| e).collect();
+    let store = voicelock::build(&vectors)
+        .ok_or_else(|| anyhow!("os trechos não formaram uma voz utilizável"))?;
+    store.save();
+    println!(
+        "\n  voz gravada: limiar {:.3}, de {} trechos (pior {:.3}, média {:.3})",
+        store.threshold, store.segments, store.self_worst, store.self_mean
+    );
+    println!("  Rode `oc-voice voices <outra-gravação>` para ver o que ela deixa passar.");
+    Ok(())
+}

@@ -18,11 +18,11 @@
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 use crate::fbank;
 use crate::voices::{cosine, SpeakerModel};
+pub use crate::voicestore::{stored, Store};
 
 /// How much speech the enrolment collects before it will build a centroid.
 pub const ENROL_SECONDS: f32 = 15.0;
@@ -36,6 +36,16 @@ pub const MIN_JUDGE_SECONDS: f32 = 1.0;
 /// across 0.26–0.68. Same voice, same microphone — the short ones carry too
 /// little to place anybody.
 pub const MIN_ENROL_SECONDS: f32 = 2.0;
+/// How many separate stretches of speech an enrolment needs before it will
+/// build anything.
+///
+/// Measured, on the lock this machine was actually running. Fifteen seconds
+/// spoken in two long breaths produced two segments, and two segments make a
+/// bar out of a *single* pairwise comparison — the two agreed at 0.418, so the
+/// bar came out at 0.268 and let through everything it was shown. Four is the
+/// point where `build` can discard the worst sample instead of obeying it, and
+/// a bar that survives one bad breath is the whole reason to have four.
+pub const MIN_ENROL_SEGMENTS: usize = 4;
 /// How far below your own worst measured sample the bar sits.
 ///
 /// Measured, and the first measurement said 0.05 was wrong. A four-segment
@@ -49,97 +59,21 @@ pub const MIN_ENROL_SECONDS: f32 = 2.0;
 /// keeps the evidence beside it so it can be argued with.
 const MARGIN: f32 = 0.15;
 
-/// What the enrolment measured, and the bar it produced. Plain text on
-/// purpose: a person editing this file beats any confidence heuristic, and it
-/// is the only defence that still works when the rest is wrong.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Store {
-    /// The mean embedding of the enrolment, normalised.
-    pub centroid: Vec<f32>,
-    /// Accept at or above this cosine.
-    pub threshold: f32,
-    /// How many segments the centroid was built from. Evidence, so a lock
-    /// built from three segments can be told from one built from twelve.
-    pub segments: usize,
-    /// Leave-one-out similarity of your own enrolment samples: the worst and
-    /// the average. These are the numbers the threshold came from, kept so it
-    /// can be argued with later.
-    pub self_worst: f32,
-    pub self_mean: f32,
-}
-
-fn path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("state"))
-        })?;
-    Some(base.join("oc-voice").join("voice.toml"))
-}
-
-impl Store {
-    fn load() -> Option<Self> {
-        let p = path()?;
-        let text = std::fs::read_to_string(&p).ok()?;
-        match toml::from_str(&text) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                warn!(path = %p.display(), error = %e, "voice lock did not parse; ignoring it");
-                None
-            }
-        }
-    }
-
-    fn store(&self) {
-        let Some(p) = path() else { return };
-        if let Some(dir) = p.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        match toml::to_string_pretty(self) {
-            Ok(text) => {
-                let _ = std::fs::write(&p, text);
-                owner_only(&p);
-                info!(path = %p.display(), segments = self.segments, "voice lock saved");
-            }
-            Err(e) => warn!(error = %e, "voice lock could not be serialised"),
-        }
-    }
-
-    fn forget() {
-        if let Some(p) = path() {
-            let _ = std::fs::remove_file(p);
-        }
-    }
-}
-
-/// Readable by its owner and nobody else.
-///
-/// A voiceprint is not reversible to audio — it is 512 numbers, not a
-/// recording — but it *is* a biometric identifier: whoever holds it can test
-/// whether a given recording is you. `fs::write` creates 0644, which would
-/// leave that open to every account on the machine, and that is the cheapest
-/// possible thing to get wrong.
-fn owner_only(p: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600));
-    }
-    #[cfg(not(unix))]
-    let _ = p;
-}
-
-/// The lock as it sits on disk, for tools that want to compare against it
-/// without owning the microphone.
-pub fn stored() -> Option<Store> {
-    Store::load()
-}
-
 /// Speech collected so far, and the embeddings taken from it.
 #[derive(Default)]
 struct Enrolment {
     seconds: f32,
     embeddings: Vec<Vec<f32>>,
+}
+
+/// How far along an enrolment is, 0.0 to 1.0.
+///
+/// Whichever of the two requirements is further from being met, so the bar
+/// never shows full while the enrolment is still waiting for a fourth breath.
+fn progress(e: &Enrolment) -> f32 {
+    let by_time = e.seconds / ENROL_SECONDS;
+    let by_count = e.embeddings.len() as f32 / MIN_ENROL_SEGMENTS as f32;
+    by_time.min(by_count).clamp(0.0, 1.0)
 }
 
 /// What the pipeline should do with the segment it just offered.
@@ -189,7 +123,7 @@ impl VoiceLock {
     /// How the UI should draw this.
     pub fn state(&self) -> crate::VoiceState {
         if let Some(e) = &self.enrolment {
-            return crate::VoiceState::Enrolling((e.seconds / ENROL_SECONDS).clamp(0.0, 1.0));
+            return crate::VoiceState::Enrolling(progress(e));
         }
         match &self.store {
             Some(s) => crate::VoiceState::On {
@@ -263,11 +197,8 @@ impl VoiceLock {
         // Short segments are noise for a centroid in a way they are not for a
         // yes/no: here there is no cost to waiting for a better one.
         if seconds < MIN_ENROL_SECONDS {
-            let progress = self
-                .enrolment
-                .as_ref()
-                .map_or(0.0, |e| e.seconds / ENROL_SECONDS);
-            return Verdict::Enrolling(progress);
+            let so_far = self.enrolment.as_ref().map_or(0.0, progress);
+            return Verdict::Enrolling(so_far);
         }
         if let Some(embedding) = self.embed(samples) {
             if let Some(e) = self.enrolment.as_mut() {
@@ -278,8 +209,8 @@ impl VoiceLock {
         let Some(e) = self.enrolment.as_ref() else {
             return Verdict::Pass;
         };
-        if e.seconds < ENROL_SECONDS {
-            return Verdict::Enrolling(e.seconds / ENROL_SECONDS);
+        if e.seconds < ENROL_SECONDS || e.embeddings.len() < MIN_ENROL_SEGMENTS {
+            return Verdict::Enrolling(progress(e));
         }
         let enrolment = self.enrolment.take().expect("checked just above");
         let count = enrolment.embeddings.len();
@@ -292,7 +223,7 @@ impl VoiceLock {
                     mean = store.self_mean,
                     "voice enrolled"
                 );
-                store.store();
+                store.save();
                 self.store = Some(store);
                 Verdict::Enrolled(count)
             }
@@ -316,7 +247,7 @@ impl VoiceLock {
 /// power to reject an impostor is untested. Both numbers are stored so this
 /// can be revisited with real data instead of re-derived from nothing.
 pub fn build(embeddings: &[Vec<f32>]) -> Option<Store> {
-    if embeddings.len() < 2 {
+    if embeddings.len() < MIN_ENROL_SEGMENTS {
         return None;
     }
     let centroid = mean(embeddings)?;
@@ -339,19 +270,16 @@ pub fn build(embeddings: &[Vec<f32>]) -> Option<Store> {
         total += s;
     }
     let mean_self = total / embeddings.len() as f32;
-    // The bar comes from the worst sample *after* discarding one, when there
-    // are enough to afford it. Measured: in a 24 s recording of a single
-    // person, one 1.8 s stretch scored 0.26 against the others while the rest
-    // sat between 0.50 and 0.86. Taking the raw minimum would have set the
-    // bar at 0.21 and let in anybody at all — one bad stretch of your own
-    // voice should not decide who else gets in.
-    let floor = if scores.len() >= 4 {
-        let mut sorted = scores.clone();
-        sorted.sort_by(f32::total_cmp);
-        sorted[1]
-    } else {
-        worst
-    };
+    // The bar comes from the worst sample *after* discarding one, which is
+    // affordable because `MIN_ENROL_SEGMENTS` guarantees four. Measured: in a
+    // 24 s recording of one person, a 1.8 s stretch scored 0.26 against the
+    // others while the rest
+    // sat between 0.50 and 0.86. Taking the raw minimum would have set the bar
+    // at 0.21 and let in anybody at all — one bad stretch of your own voice
+    // should not decide who else gets in.
+    let mut sorted = scores.clone();
+    sorted.sort_by(f32::total_cmp);
+    let floor = sorted[1];
     Some(Store {
         centroid,
         threshold: (floor - MARGIN).clamp(0.0, 1.0),

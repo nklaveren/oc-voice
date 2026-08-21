@@ -7,6 +7,7 @@
 //! and `build`'s own documentation says so rather than pretending otherwise.
 
 use super::*;
+use crate::testing::isolate_state;
 
 /// Embeddings that are close to each other, plus a knob to move one away.
 fn cluster(n: usize, spread: f32) -> Vec<Vec<f32>> {
@@ -22,11 +23,24 @@ fn cluster(n: usize, spread: f32) -> Vec<Vec<f32>> {
 }
 
 #[test]
-fn one_sample_is_not_a_voice() {
+fn a_handful_of_samples_is_not_a_voice() {
     // A centroid from a single segment describes that segment, not a person,
     // and there is nothing to measure a bar against.
     assert!(build(&cluster(1, 0.0)).is_none());
     assert!(build(&[]).is_none());
+    // Two and three are the ones that bite, because they *do* produce a lock
+    // — a plausible-looking one that is not a lock at all. With two, the bar
+    // rests on one pairwise comparison, so a single poor breath sets it: the
+    // lock this machine was running came out of exactly that and landed at
+    // 0.268, which is under what a different person scores. Four is the point
+    // where the worst sample can be discarded rather than obeyed.
+    for n in 2..MIN_ENROL_SEGMENTS {
+        assert!(
+            build(&cluster(n, 0.02)).is_none(),
+            "{n} segments must not produce a bar"
+        );
+    }
+    assert!(build(&cluster(MIN_ENROL_SEGMENTS, 0.02)).is_some());
 }
 
 #[test]
@@ -93,6 +107,10 @@ fn a_short_utterance_is_never_rejected() {
 
 #[test]
 fn with_no_voice_stored_nothing_is_filtered() {
+    // Next to the state directory sits the person's own voiceprint. A test
+    // that reads it passes or fails on whether they have enrolled; a test that
+    // writes there would destroy it.
+    isolate_state();
     let mut lock = VoiceLock::new(std::path::PathBuf::from("/nonexistent-model.onnx"));
     assert_eq!(lock.state(), crate::VoiceState::Off);
     let long = vec![0.0f32; (fbank::SAMPLE_RATE * 3.0) as usize];
@@ -101,6 +119,7 @@ fn with_no_voice_stored_nothing_is_filtered() {
 
 #[test]
 fn a_missing_model_lets_speech_through_rather_than_blocking_it() {
+    isolate_state();
     // The model file can be absent on a fresh checkout. Failing closed would
     // make the app look broken; failing open loses the filter and says so in
     // the log, which is the lesser harm for a feature that is an assistant.
@@ -108,31 +127,4 @@ fn a_missing_model_lets_speech_through_rather_than_blocking_it() {
     lock.store = build(&cluster(5, 0.01));
     let long = vec![0.1f32; (fbank::SAMPLE_RATE * 2.0) as usize];
     assert_eq!(lock.offer(&long), Verdict::Pass);
-}
-
-#[cfg(unix)]
-#[test]
-fn the_voiceprint_is_not_world_readable() {
-    // Tested on the mechanism rather than through `store()`, which would mean
-    // pointing `XDG_STATE_HOME` somewhere — a process-global that another
-    // test is also setting. Writing to the real state directory from a test
-    // is the bug that ate the overlay's saved position this afternoon; doing
-    // it again here to check a file mode would be a poor trade.
-    use std::os::unix::fs::PermissionsExt;
-    let p = std::env::temp_dir().join(format!("oc-voice-perm-{}", std::process::id()));
-    std::fs::write(&p, "x").expect("scratch file");
-    assert_ne!(
-        std::fs::metadata(&p).unwrap().permissions().mode() & 0o077,
-        0,
-        "the default mode is the thing being fixed; if it is already 0600 this proves nothing"
-    );
-    owner_only(&p);
-    let mode = std::fs::metadata(&p).unwrap().permissions().mode();
-    assert_eq!(
-        mode & 0o077,
-        0,
-        "mode {:o} lets others read it",
-        mode & 0o777
-    );
-    let _ = std::fs::remove_file(&p);
 }

@@ -4,20 +4,9 @@
 use super::*;
 use crate::Source;
 
-/// Point saved state at a scratch directory before the first app is built.
-///
-/// `OverlayApp::new` loads the overlay's saved layout, and several paths here
-/// write it back. Without this the suite reads — and then overwrites — the
-/// position the person running it left their overlay in. It did exactly that
-/// for an afternoon, and the symptom reported was "it is not saving where I
-/// put it": every `just check` reset it.
-fn isolate_state() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        let dir = std::env::temp_dir().join(format!("oc-voice-test-{}", std::process::id()));
-        std::env::set_var("XDG_STATE_HOME", &dir);
-    });
-}
+// `OverlayApp::new` loads the overlay's saved layout, and several paths here
+// write it back — see `testing.rs` for what that cost the first time.
+use crate::testing::isolate_state;
 
 fn app_with_channel() -> (OverlayApp, crossbeam_channel::Sender<TranscriptEvent>) {
     isolate_state();

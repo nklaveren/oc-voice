@@ -8,6 +8,9 @@
 //!   asr-test <m>   read the reference passage aloud, get word error rate
 //!   ocr <alvo>     what OCR reads off a window, with positions
 //!   voices         load the speaker model and report what it declares
+//!   voices <arq>   measure a recording against the stored voice
+//!   voices --enrol <arq>
+//!                  build the stored voice from a recording
 //!
 //! `ctl` is the exception: it talks to a *running* instance rather than
 //! standing alone. See `control.rs` for why that exists.
@@ -63,17 +66,28 @@ pub fn run_subcommand(arg: &str) -> Result<bool> {
             Ok(true)
         }
         "voices" => {
+            // With `--enrol <file>`: build the lock from that recording.
             // With a file: measure that recording against the stored voice.
             // Without: report what the model declares, which is the check that
             // came first and still answers a different question.
-            if let Some(file) = std::env::args().nth(2) {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let enrolling = args.first().map(String::as_str) == Some("--enrol");
+            if let Some(file) = args.get(usize::from(enrolling)) {
                 let runner: std::sync::Arc<dyn crate::process::CommandRunner> =
                     std::sync::Arc::new(crate::process::SystemRunner);
                 let config = crate::config::Config::load();
                 let seg = config.segmentation(false);
                 let hang_frames = (seg.hang_ms as usize * 16_000 / 1000) / crate::VAD_FRAME_SAMPLES;
-                crate::voiceprobe::report(&runner, std::path::Path::new(&file), hang_frames)?;
+                let path = std::path::Path::new(file);
+                if enrolling {
+                    crate::voiceprobe::enrol(&runner, path, hang_frames)?;
+                } else {
+                    crate::voiceprobe::report(&runner, path, hang_frames)?;
+                }
                 return Ok(true);
+            }
+            if enrolling {
+                return Err(anyhow!("usage: oc-voice voices --enrol <arquivo>"));
             }
             crate::voices::report()?;
             Ok(true)

@@ -26,11 +26,14 @@ mod pipeline;
 mod probe;
 mod process;
 mod session;
+#[cfg(test)]
+mod testing;
 mod translate;
 mod ui;
 mod voicelock;
 mod voiceprobe;
 mod voices;
+mod voicestore;
 mod wm;
 
 use process::{CommandRunner, SystemRunner};
