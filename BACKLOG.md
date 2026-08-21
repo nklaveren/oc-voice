@@ -206,7 +206,7 @@ Um bug irmão do "câmbio" que some junto: hoje o match é igualdade contra a **
 
 ### M1.3 — Vocabulário multilíngue em arquivo de configuração ✅ `4bec2b2`
 
-As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, `src/ui/overlay.rs:93`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
+As palavras estão no código-fonte, em português, com o alvo `oc-opencode` chumbado. O overlay já deixa escolher entre 8 idiomas de transcrição (`LANGUAGES`, em `src/ui/overlay.rs`), mas os comandos só existem em português — trocar o idioma faz o ditado funcionar e os comandos pararem.
 
 Mover para `~/.config/oc-voice/commands.toml`, com seções por idioma e `pt` + `en` embutidos no binário como default:
 

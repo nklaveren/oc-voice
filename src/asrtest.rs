@@ -238,6 +238,7 @@ pub fn run(model_path: &str) -> Result<()> {
         mode: TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     }));
 
     println!(

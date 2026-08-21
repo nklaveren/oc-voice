@@ -28,6 +28,7 @@ fn a_dispatched_command_is_never_also_typed() {
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     });
     let (tx, _rx) = crossbeam_channel::unbounded();
     let mut buffer: Vec<String> = Vec::new();
@@ -128,6 +129,7 @@ fn unmatched_target_waits_for_confirmation() {
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     });
     route_final(
         crate::TranscribeMode::Enter,
@@ -156,6 +158,7 @@ fn fecha_then_confirma_kills_the_window() {
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     });
     let (tx, _rx) = crossbeam_channel::unbounded();
     let mut buffer = Vec::new();
@@ -202,6 +205,7 @@ fn deny_discards_the_pending_action() {
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     });
     route_final(
         crate::TranscribeMode::Enter,
@@ -233,6 +237,7 @@ fn enter_mode_navigates_without_leaving_enter_mode() {
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     });
     let fake = std::sync::Arc::new(crate::process::FakeRunner::new(b"[]".to_vec()));
     let runner: std::sync::Arc<dyn crate::process::CommandRunner> = fake.clone();
@@ -274,6 +279,7 @@ fn dictation_that_is_not_a_command_still_reaches_the_buffer() {
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     });
     let fake = std::sync::Arc::new(crate::process::FakeRunner::new(b"[]".to_vec()));
     let runner: std::sync::Arc<dyn crate::process::CommandRunner> = fake.clone();

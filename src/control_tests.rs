@@ -12,6 +12,7 @@ fn settings() -> Arc<Mutex<AppSettings>> {
         mode: crate::TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     }))
 }
 

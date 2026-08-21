@@ -60,7 +60,9 @@ impl OverlayApp {
         let padding = egui::vec2(PAD_X as f32 * 2.0, PAD_Y as f32 * 2.0);
         let panel_size = (ui.available_size() - padding).max(egui::Vec2::ZERO);
         let bg = egui::Frame::new()
-            .fill(egui::Color32::from_black_alpha(200))
+            .fill(egui::Color32::from_black_alpha(
+                (self.layout.opacity * 255.0) as u8,
+            ))
             .corner_radius(10.0)
             .inner_margin(egui::Margin::symmetric(PAD_X, PAD_Y));
 
@@ -294,25 +296,7 @@ impl OverlayApp {
         });
 
         if self.show_settings {
-            egui::Window::new("Settings")
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .resizable(false)
-                .collapsible(false)
-                .show(ui.ctx(), |ui| {
-                    ui.label("Language:");
-                    ui.horizontal(|ui| {
-                        let current = self.settings.lock().unwrap().language.clone();
-                        for lang in LANGUAGES {
-                            if ui.selectable_label(current == *lang, *lang).clicked() {
-                                self.settings.lock().unwrap().language = lang.to_string();
-                            }
-                        }
-                    });
-                    ui.add_space(8.0);
-                    if ui.button("Close").clicked() {
-                        self.show_settings = false;
-                    }
-                });
+            self.settings_window(ui);
         }
     }
 }

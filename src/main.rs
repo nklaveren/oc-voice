@@ -203,6 +203,10 @@ pub struct AppSettings {
     /// next tick. A request rather than a state, because the session itself
     /// lives in the pipeline thread and only it may open or close one.
     pub session_request: Option<SessionRequest>,
+    /// Asks the overlay to toggle its Settings panel. A request like the
+    /// others: the panel's state belongs to the UI, and only the UI may flip
+    /// it — this just knocks.
+    pub toggle_settings: bool,
 }
 
 /// Lock shared settings, recovering from mutex poisoning. A poisoned lock
@@ -261,6 +265,7 @@ fn main() -> Result<()> {
         mode: TranscribeMode::Enter,
         detected_language: None,
         session_request: None,
+        toggle_settings: false,
     }));
 
     // A third way in, beside the buttons and the spoken words: a keybinding.

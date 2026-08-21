@@ -1,5 +1,5 @@
 use crate::process::CommandRunner;
-use crate::ui::host::{Flow, Geometry, OverlayUi};
+use crate::ui::host::{Flow, Geometry, LayoutRequest, OverlayUi};
 use crate::{AppSettings, TranscribeMode, TranscriptEvent};
 use anyhow::Result;
 use crossbeam_channel::Receiver;
@@ -12,6 +12,9 @@ use std::sync::{Arc, Mutex};
 pub const OVERLAY_W: f32 = 900.0;
 pub const OVERLAY_H: f32 = 350.0;
 pub const OVERLAY_BOTTOM_MARGIN: f32 = 60.0;
+/// Matches the `windowrule=opacity 0.85` this replaces closely enough that
+/// nobody notices the day the window rule stopped applying.
+pub const OVERLAY_OPACITY: f32 = 0.82;
 
 pub fn run_overlay(
     rx: Receiver<TranscriptEvent>,
@@ -20,21 +23,41 @@ pub fn run_overlay(
     runner: Arc<dyn CommandRunner>,
     config: Arc<crate::config::Config>,
 ) -> Result<()> {
+    // Start where it was left. Config says where it goes the first time;
+    // after that the overlay's own controls have the last word, and forcing
+    // it back to the config value on every launch would make those controls
+    // feel broken.
+    let mut geometry = Geometry {
+        width: OVERLAY_W,
+        height: OVERLAY_H,
+        bottom_margin: OVERLAY_BOTTOM_MARGIN,
+    };
+    let saved = state::Saved::load();
+    if let Some(v) = saved.width {
+        geometry.width = v;
+    }
+    if let Some(v) = saved.height {
+        geometry.height = v;
+    }
+    if let Some(v) = saved.bottom_margin {
+        geometry.bottom_margin = v;
+    }
+    let monitor = saved
+        .monitor
+        .clone()
+        .unwrap_or_else(|| config.overlay_monitor().to_string());
+
     // Which surface the overlay lives on, and what that costs to keep in
     // place, are the host's business — not this function's and not the UI's.
     let host = crate::ui::host::default_host(
-        Geometry {
-            width: OVERLAY_W,
-            height: OVERLAY_H,
-            bottom_margin: OVERLAY_BOTTOM_MARGIN,
-        },
+        geometry,
         runner.clone(),
-        config.overlay_monitor().to_string(),
+        monitor.clone(),
         config.overlay_surface(),
     );
-    host.run(Box::new(OverlayApp::new(
-        rx, running, settings, config, runner,
-    )))
+    let mut app = OverlayApp::new(rx, running, settings, config, runner);
+    app.monitor = monitor;
+    host.run(Box::new(app))
 }
 
 struct OverlayApp {
@@ -59,6 +82,31 @@ struct OverlayApp {
     /// When a session is recording, and how many lines it holds (M7.1).
     /// Recording without a visible indication is not acceptable.
     pub(super) recording: Option<(std::time::Instant, usize)>,
+    /// How the overlay is laid out, and what it has asked the host to change.
+    ///
+    /// It lives here rather than in the host because the controls are here:
+    /// a layer surface cannot be dragged by a window manager, so the only
+    /// place left to move it from is the overlay itself.
+    pub(super) layout: Layout,
+    pub(super) layout_request: Option<LayoutRequest>,
+    /// The size to go back to when Settings closes. The panel grows the
+    /// surface to stay visible, and the slider's value is the intent — not
+    /// what is on screen while the panel is open.
+    pub(super) size_before_settings: Option<(f32, f32)>,
+    /// Which output the overlay was last moved to, remembered across runs.
+    pub(super) monitor: String,
+}
+
+/// The knobs on the Settings panel's window section.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Layout {
+    pub width: f32,
+    pub height: f32,
+    pub bottom_margin: f32,
+    /// 0.0 fully transparent, 1.0 opaque. Replaces what
+    /// `windowrule=opacity` used to do — a layer surface gives the compositor
+    /// nothing to dim, so the panel dims itself.
+    pub opacity: f32,
 }
 
 /// One line of scrollback: what was said, and — for as long as the line
@@ -148,6 +196,20 @@ fn speaker_color(source: crate::Source) -> egui::Color32 {
 }
 
 impl OverlayApp {
+    /// Write the layout down so it survives a restart. Called on every change
+    /// that settles — a slider release, an arrow, closing the panel — rather
+    /// than every frame, because a drag is sixty changes a second.
+    pub(super) fn save_layout(&self) {
+        state::Saved {
+            width: Some(self.layout.width),
+            height: Some(self.layout.height),
+            bottom_margin: Some(self.layout.bottom_margin),
+            opacity: Some(self.layout.opacity),
+            monitor: (!self.monitor.is_empty()).then(|| self.monitor.clone()),
+        }
+        .store();
+    }
+
     fn new(
         rx: Receiver<TranscriptEvent>,
         running: Arc<AtomicBool>,
@@ -169,6 +231,19 @@ impl OverlayApp {
             show_settings: false,
             pipeline_failed: false,
             recording: None,
+            layout: {
+                let mut l = Layout {
+                    width: OVERLAY_W,
+                    height: OVERLAY_H,
+                    bottom_margin: OVERLAY_BOTTOM_MARGIN,
+                    opacity: OVERLAY_OPACITY,
+                };
+                state::Saved::load().apply_to(&mut l);
+                l
+            },
+            layout_request: None,
+            size_before_settings: None,
+            monitor: String::new(),
         }
     }
 
@@ -194,10 +269,21 @@ mod events;
 #[path = "overlay_draw.rs"]
 mod draw;
 
+#[path = "overlay_settings.rs"]
+mod settings_panel;
+
+#[path = "overlay_state.rs"]
+mod state;
+
 impl OverlayUi for OverlayApp {
     fn tick(&mut self) -> Flow {
         // Drain all pending transcription events before painting.
         self.drain_events();
+        // A keybinding can ask for the panel. Taken, not read, so one press
+        // is one toggle.
+        if std::mem::take(&mut crate::lock_settings(&self.settings).toggle_settings) {
+            self.show_settings = !self.show_settings;
+        }
         // The pipeline signals shutdown by clearing this; how a window closes
         // is the host's business.
         if self.running.load(Ordering::SeqCst) {
@@ -214,6 +300,10 @@ impl OverlayUi for OverlayApp {
     fn clear_color(&self) -> [f32; 4] {
         // Fully transparent; the panel we draw is the only opaque thing.
         [0.0, 0.0, 0.0, 0.0]
+    }
+
+    fn take_layout_request(&mut self) -> Option<LayoutRequest> {
+        self.layout_request.take()
     }
 
     fn on_exit(&mut self) {

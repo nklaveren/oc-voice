@@ -46,6 +46,8 @@ mod frame;
 mod gl;
 #[path = "host_layer_input.rs"]
 mod input;
+#[path = "host_layer_layout.rs"]
+mod layout;
 #[path = "host_layer_scale.rs"]
 pub(super) mod scale;
 use gl::Gl;
@@ -92,6 +94,7 @@ impl OverlayHost for LayerShellHost {
             shell,
             geometry: geom,
             want_monitor: self.monitor,
+            ordered_outputs: Vec::new(),
             rebuild: false,
             layer: None,
             fractional: None,
@@ -121,6 +124,9 @@ impl OverlayHost for LayerShellHost {
 
         while !state.exit {
             queue.blocking_dispatch(&mut state)?;
+            if let Some(request) = state.ui.take_layout_request() {
+                state.apply_layout(request, &qh);
+            }
             if state.rebuild {
                 state.rebuild = false;
                 state.build_surface(&qh);
@@ -166,6 +172,9 @@ struct State {
     shell: LayerShell,
     geometry: Geometry,
     want_monitor: String,
+    /// Names left to right, so a step is an index move rather than a guess.
+    /// Filled at every rebuild, because monitors come and go.
+    ordered_outputs: Vec<String>,
     rebuild: bool,
     layer: Option<LayerSurface>,
     /// The fractional-scale pair, when the compositor offers it. Without it
@@ -204,6 +213,7 @@ impl State {
         self.gl = None;
         self.layer = None;
 
+        self.ordered_outputs = layout::ordered_output_names(&self.output);
         let output = pick_output(&self.output, &self.want_monitor);
         match output {
             Some(ref o) => {

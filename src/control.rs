@@ -42,6 +42,7 @@ const VERBS: &[(&str, &str)] = &[
     ("record", "start a recorded session"),
     ("stop", "close the recorded session"),
     ("mode", "switch between microphone and system audio"),
+    ("settings", "open or close the Settings panel"),
     ("status", "print mode and whether a session is open"),
 ];
 
@@ -116,6 +117,10 @@ fn apply(verb: &str, settings: &Arc<Mutex<AppSettings>>) -> String {
         "mode" => {
             s.mode = s.mode.next();
             format!("mode={:?}", s.mode)
+        }
+        "settings" => {
+            s.toggle_settings = true;
+            "settings toggled".into()
         }
         "status" => format!(
             "mode={:?} pending={:?} language={}",

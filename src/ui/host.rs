@@ -27,6 +27,26 @@ pub enum Flow {
     Exit,
 }
 
+/// A layout change the overlay is asking its host for.
+///
+/// The direction the seam did not have. Everything so far went host to UI —
+/// paint this, tick that — because the surface was fixed at startup. Moving
+/// the overlay between monitors is the one thing the UI can decide and only
+/// the host can carry out, now that no window manager can be asked to do it.
+///
+/// Opacity is deliberately absent: that is paint, and paint never leaves the
+/// UI.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LayoutRequest {
+    /// Logical size.
+    pub size: Option<(f32, f32)>,
+    /// Gap from the bottom edge of the monitor.
+    pub bottom_margin: Option<f32>,
+    /// `-1` or `+1`: the monitor left or right of the current one, in
+    /// spatial order.
+    pub monitor_step: Option<i32>,
+}
+
 /// What a host needs from the overlay.
 pub trait OverlayUi: Send {
     /// Take in whatever arrived since the last frame, and say whether to go on.
@@ -42,6 +62,13 @@ pub trait OverlayUi: Send {
     /// live speech, so this is a ceiling on latency, not a frame rate.
     fn repaint_after(&self) -> Duration {
         Duration::from_millis(50)
+    }
+
+    /// A layout change the UI wants, *taken* rather than read, so it fires
+    /// once. Same shape as the session request the record button uses: the UI
+    /// asks, and whoever owns the thing decides.
+    fn take_layout_request(&mut self) -> Option<LayoutRequest> {
+        None
     }
 
     /// The host is going away.
