@@ -18,9 +18,11 @@ pub fn emit(tx: &Sender<TranscriptEvent>, event: TranscriptEvent) {
         TranscriptEvent::VoiceLocked(n) => {
             write_stdout(&format!("\r\x1b[2K[voz]      gravada de {n} trecho(s)\n"))
         }
-        TranscriptEvent::VoiceRejected(score) => {
-            write_stdout(&format!("\r\x1b[2K[voz]      ignorado ({score:.2})\n"))
-        }
+        // Deliberately silent. Anything not your voice is refused, and near a
+        // playing video that is every utterance — the terminal record would be
+        // mostly refusals. The score is still in the log at debug level, where
+        // somebody chasing a wrong refusal will look for it.
+        TranscriptEvent::VoiceRejected(_) => {}
         TranscriptEvent::Buffered(n) => write_stdout(&format!(
             "\r\x1b[2K[buffered] {n} line(s) waiting for keyword"
         )),

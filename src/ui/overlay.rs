@@ -103,6 +103,11 @@ struct OverlayApp {
     /// The host's answer for how big the surface may get. `None` until the
     /// first configure, and the controls stay conservative until then.
     pub(super) max_size: Option<(f32, f32)>,
+    /// The last utterance the voice lock refused: its score, how many have
+    /// been refused in a row, and when the most recent one arrived.
+    ///
+    /// A count rather than a line each. See `overlay_status.rs`.
+    pub(super) ignored: Option<(f32, usize, std::time::Instant)>,
 }
 
 /// The knobs on the Settings panel's window section.
@@ -259,6 +264,7 @@ impl OverlayApp {
             layout_request: None,
             monitor: String::new(),
             max_size: None,
+            ignored: None,
         }
     }
 
@@ -289,6 +295,9 @@ mod settings_panel;
 
 #[path = "overlay_quit.rs"]
 mod quit;
+
+#[path = "overlay_status.rs"]
+mod status;
 
 #[path = "overlay_state.rs"]
 mod state;

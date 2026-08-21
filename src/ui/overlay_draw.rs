@@ -113,36 +113,7 @@ impl OverlayApp {
             ui.vertical(|ui| {
                 ui.set_width(ui.available_width());
 
-                if let Some((since, lines)) = self.recording {
-                    let secs = since.elapsed().as_secs();
-                    // Blinks so it cannot be mistaken for a static label.
-                    // ASCII, like the translation marker: the bundled font has
-                    // no ⏺/◯ and drew an empty box for both, which blinks
-                    // exactly as well as nothing at all.
-                    let dot = if secs % 2 == 0 { "*" } else { " " };
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{dot} GRAVANDO  {:02}:{:02}:{:02}  ({lines} falas)",
-                            secs / 3600,
-                            (secs % 3600) / 60,
-                            secs % 60
-                        ))
-                        .color(egui::Color32::from_rgb(255, 80, 80))
-                        .strong()
-                        .size(16.0),
-                    );
-                }
-
-                if self.pipeline_failed {
-                    ui.label(
-                        egui::RichText::new(
-                            "[ audio pipeline crashed \u{2014} close and restart oc-voice ]",
-                        )
-                        .color(egui::Color32::from_rgb(255, 90, 90))
-                        .strong()
-                        .size(18.0),
-                    );
-                }
+                super::status::strip(self, ui);
 
                 // Scrollback, pinned to the bottom: a meeting produces far
                 // more lines than fit, and the newest must stay visible

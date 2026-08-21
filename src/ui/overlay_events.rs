@@ -97,12 +97,22 @@ impl OverlayApp {
                         crate::Source::Mic,
                     );
                 }
+                // Not a line in the transcript. A television near the
+                // microphone produced five of these in a row, and each one
+                // pushed the record it was meant to annotate further up the
+                // screen. It is a condition, so it lives on the status strip
+                // and keeps a count — see `overlay_status.rs`.
                 TranscriptEvent::VoiceRejected(score) => {
                     self.partial_mic.clear();
-                    self.push_line(
-                        format!("[ ignorado: não é a sua voz ({score:.2}) ]"),
-                        crate::Source::System,
-                    );
+                    // The count runs only while the refusals keep coming.
+                    // A gap means the other voice stopped, so the next one
+                    // starts over rather than reporting a tally from an hour
+                    // ago as though it were happening now.
+                    let run = match self.ignored {
+                        Some((_, n, at)) if at.elapsed() < super::status::IGNORED_SHOWN => n + 1,
+                        _ => 1,
+                    };
+                    self.ignored = Some((score, run, std::time::Instant::now()));
                 }
                 TranscriptEvent::Buffered(n) => {
                     self.partial_mic.clear();

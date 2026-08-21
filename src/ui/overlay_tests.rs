@@ -311,3 +311,31 @@ fn live_pipeline_does_not_set_failure_state() {
 
 #[path = "overlay_interaction_tests.rs"]
 mod interaction;
+
+#[test]
+fn refused_utterances_never_reach_the_transcript() {
+    // Reported from a screenshot: a video playing near the microphone put
+    // five "[ ignorado: não é a sua voz ]" banners on screen, one per
+    // utterance, each pushing the record they annotate further up. The
+    // refusals are a condition, not five events — one status line, one count,
+    // and the scrollback untouched.
+    let (mut app, tx) = app_with_channel();
+    for score in [0.33, 0.25, 0.33, 0.39, 0.33] {
+        tx.send(TranscriptEvent::VoiceRejected(score)).unwrap();
+    }
+    app.drain_events();
+
+    assert!(
+        app.finals.is_empty(),
+        "the transcript picked up {} line(s) it should not have",
+        app.finals.len()
+    );
+    let (score, run, _) = app
+        .ignored
+        .expect("the refusal is still reported somewhere");
+    assert_eq!(run, 5);
+    assert!(
+        (score - 0.33).abs() < 1e-6,
+        "the latest score, not the first"
+    );
+}
