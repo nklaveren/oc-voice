@@ -82,6 +82,7 @@ impl Store {
         match toml::to_string_pretty(self) {
             Ok(text) => {
                 let _ = std::fs::write(&p, text);
+                owner_only(&p);
                 info!(path = %p.display(), segments = self.segments, "voice lock saved");
             }
             Err(e) => warn!(error = %e, "voice lock could not be serialised"),
@@ -93,6 +94,23 @@ impl Store {
             let _ = std::fs::remove_file(p);
         }
     }
+}
+
+/// Readable by its owner and nobody else.
+///
+/// A voiceprint is not reversible to audio — it is 512 numbers, not a
+/// recording — but it *is* a biometric identifier: whoever holds it can test
+/// whether a given recording is you. `fs::write` creates 0644, which would
+/// leave that open to every account on the machine, and that is the cheapest
+/// possible thing to get wrong.
+fn owner_only(p: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    let _ = p;
 }
 
 /// Speech collected so far, and the embeddings taken from it.

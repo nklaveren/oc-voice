@@ -109,3 +109,30 @@ fn a_missing_model_lets_speech_through_rather_than_blocking_it() {
     let long = vec![0.1f32; (fbank::SAMPLE_RATE * 2.0) as usize];
     assert_eq!(lock.offer(&long), Verdict::Pass);
 }
+
+#[cfg(unix)]
+#[test]
+fn the_voiceprint_is_not_world_readable() {
+    // Tested on the mechanism rather than through `store()`, which would mean
+    // pointing `XDG_STATE_HOME` somewhere — a process-global that another
+    // test is also setting. Writing to the real state directory from a test
+    // is the bug that ate the overlay's saved position this afternoon; doing
+    // it again here to check a file mode would be a poor trade.
+    use std::os::unix::fs::PermissionsExt;
+    let p = std::env::temp_dir().join(format!("oc-voice-perm-{}", std::process::id()));
+    std::fs::write(&p, "x").expect("scratch file");
+    assert_ne!(
+        std::fs::metadata(&p).unwrap().permissions().mode() & 0o077,
+        0,
+        "the default mode is the thing being fixed; if it is already 0600 this proves nothing"
+    );
+    owner_only(&p);
+    let mode = std::fs::metadata(&p).unwrap().permissions().mode();
+    assert_eq!(
+        mode & 0o077,
+        0,
+        "mode {:o} lets others read it",
+        mode & 0o777
+    );
+    let _ = std::fs::remove_file(&p);
+}
