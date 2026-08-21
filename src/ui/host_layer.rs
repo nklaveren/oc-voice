@@ -86,6 +86,7 @@ impl OverlayHost for LayerShellHost {
             egui: egui::Context::default(),
             ui,
             size: (geom.width as u32, geom.height as u32),
+            logical: (geom.width as u32, geom.height as u32),
             scale: 1.0,
             events: Vec::new(),
             cursor: None,
@@ -151,7 +152,12 @@ struct State {
     gl: Option<Gl>,
     egui: egui::Context,
     ui: Box<dyn OverlayUi>,
+    /// Buffer size in physical pixels — what GL draws into.
     size: (u32, u32),
+    /// The size the compositor agreed to, in logical pixels. Kept because a
+    /// scale change has to recompute the buffer from it, and the configure
+    /// that carried it may have arrived before the scale did.
+    logical: (u32, u32),
     scale: f32,
     events: Vec<egui::Event>,
     cursor: Option<egui::Pos2>,
@@ -159,6 +165,27 @@ struct State {
 }
 
 impl State {
+    /// Physical pixels for the agreed logical size.
+    fn buffer_size(&self) -> (u32, u32) {
+        let (w, h) = self.logical;
+        (
+            (w as f32 * self.scale) as u32,
+            (h as f32 * self.scale) as u32,
+        )
+    }
+
+    /// Follow `self.size` with the EGL window, which glutin owns.
+    fn resize_gl(&mut self) {
+        let (w, h) = self.size;
+        if let Some(gl) = self.gl.as_ref() {
+            gl.surface.resize(
+                &gl.context,
+                NonZeroU32::new(w.max(1)).unwrap(),
+                NonZeroU32::new(h.max(1)).unwrap(),
+            );
+        }
+    }
+
     fn draw(&mut self, qh: &QueueHandle<Self>) {
         if self.ui.tick() == Flow::Exit {
             self.exit = true;
@@ -172,9 +199,12 @@ impl State {
         let (w, h) = self.size;
         let ppp = self.scale;
         let raw = egui::RawInput {
+            // egui thinks in logical points; the buffer is physical. These are
+            // the two ends of the same conversion, so it uses the logical size
+            // the compositor agreed to rather than dividing back out of it.
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(w as f32 / ppp, h as f32 / ppp),
+                egui::vec2(self.logical.0 as f32, self.logical.1 as f32),
             )),
             events: std::mem::take(&mut self.events),
             ..Default::default()
@@ -275,11 +305,9 @@ impl LayerShellHandler for State {
     ) {
         let (w, h) = c.new_size;
         if w != 0 && h != 0 {
-            self.size = (
-                (w as f32 * self.scale) as u32,
-                (h as f32 * self.scale) as u32,
-            );
+            self.logical = (w, h);
         }
+        self.size = self.buffer_size();
         if self.gl.is_none() {
             if let Err(e) = self.init_gl(conn, layer.wl_surface()) {
                 warn!(error = ?e, "could not create the GL context for the layer surface");
@@ -287,13 +315,8 @@ impl LayerShellHandler for State {
                 return;
             }
             info!(size = ?self.size, scale = self.scale, "layer surface configured");
-        } else if let Some(gl) = self.gl.as_ref() {
-            let (pw, ph) = self.size;
-            gl.surface.resize(
-                &gl.context,
-                NonZeroU32::new(pw.max(1)).unwrap(),
-                NonZeroU32::new(ph.max(1)).unwrap(),
-            );
+        } else {
+            self.resize_gl();
         }
         self.draw(qh);
     }
@@ -303,16 +326,24 @@ impl CompositorHandler for State {
     fn scale_factor_changed(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         surface: &wl_surface::WlSurface,
         new: i32,
     ) {
+        // This arrives *after* the first configure, so the buffer already
+        // exists at the old scale. Storing the number and stopping there left
+        // a 900x350 buffer on a surface the compositor now reads as 1800x700
+        // — measured on the 1.67x panel, where the compositor reports 2.
+        //
         // Integer scale only; `wp_fractional_scale_v1` is the follow-up. On a
-        // 1.5x or 1.67x output the compositor reports 2 here and downscales,
-        // which is soft but correct in size — wrong size would be worse.
+        // 1.67x output this renders at 2x and the compositor downscales:
+        // slightly soft, correct in size. Wrong size would be worse.
         self.scale = new as f32;
         surface.set_buffer_scale(new);
-        info!(scale = new, "output scale changed");
+        self.size = self.buffer_size();
+        self.resize_gl();
+        info!(scale = new, buffer = ?self.size, "output scale changed");
+        self.draw(qh);
     }
 
     fn transform_changed(
