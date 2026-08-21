@@ -692,11 +692,28 @@ O caminho real é trocar a camada de janela mantendo o desenho:
 
 | Sobrevive | Precisa ser reescrito |
 |---|---|
-| `OverlayApp::ui()` — o desenho em egui | `run_overlay` — criação de janela e event loop |
-| `drain_events`, `send_word`, estado | `impl eframe::App` → loop próprio |
-| ~200 das 373 linhas | ~170 linhas, mais uma camada nova |
+| `draw()` — o desenho em egui (250 linhas) | `run_overlay` — criação de janela e event loop |
+| `drain_events`, `send_word`, estado (145) | `impl eframe::App` → loop próprio |
 
-Dependências: `smithay-client-toolkit` (layer-shell + event loop), `egui-wgpu` ou `egui_glow` para renderizar, `raw-window-handle` para amarrar. O eframe sai.
+Dependências: `smithay-client-toolkit` 0.21 (layer-shell, seat, event loop), `egui-wgpu` ou `egui_glow` para renderizar, `raw-window-handle` para amarrar. O eframe sai.
+
+**A estimativa anterior aqui dizia "~170 linhas" e estava errada por ~3x.** Ela contava só a criação de janela e o loop, e esquecia duas coisas que o eframe faz de graça:
+
+- **Entrada de ponteiro.** O overlay tem botões — Settings, Gravar, Ata, troca de modo, e os `selectable_label` do painel de idioma. Com SCTK cru é preciso traduzir `wl_pointer` para `egui::RawInput` na mão, ou o overlay vira somente leitura.
+- **Escala fracionária.** O eDP-1 desta máquina roda em `scale 1.67`. É a classe de coisa que o eframe absorve e que código artesanal erra — e este projeto já sangrou nela uma vez, no `grim` do OCR (M7.6).
+
+Medido nos exemplos oficiais do SCTK 0.21, que são o esqueleto exato desta migração: `simple_layer.rs` tem **460 linhas** (layer surface + seat + ponteiro + teclado) e `wgpu.rs` tem **311** (a ponte `RawWindowHandle` → `wgpu::Surface`). Fundidos, mais a integração do egui, a seleção de output e a escala: **~550 linhas novas**.
+
+**Então o saldo de linhas é positivo, não negativo.** As ~206 de `try_hyprland_float` somem de verdade, mas chegam ~550 no lugar. O que se compra é a propriedade, não o tamanho — e o documento vendia as duas coisas.
+
+**Viabilidade verificada (spike, 2026-08).** O exemplo `simple_layer` roda neste Hyprland 0.54.3 e satisfaz o critério de aceite sem código próprio:
+
+```
+Layer 5d043b015e70: xywh: 5808 1184 256 256, namespace: simple_layer
+   em hyprctl clients: NENHUM
+```
+
+Aparece em `hyprctl layers` no nível *top*, ausente de `clients`, e o SCTK anuncia `pointer capability` — a metade que faltava na conta. O risco restante é a integração do egui e a escala, não o protocolo.
 
 **O que se ganha:** o tiling e o roubo de foco deixam de ser possíveis por construção, não por correção. A thread `try_hyprland_float` inteira desaparece — com ela os três bugs que já apareceram nela (toggle não idempotente, `resizeactive` sem alvo, busca por substring). Ancoragem passa a ser declarativa em vez de aritmética de pixels com escala de monitor. E funciona em qualquer compositor wlroots sem configuração nenhuma.
 
