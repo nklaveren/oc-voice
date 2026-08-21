@@ -771,8 +771,10 @@ log:              overlay output chosen monitor=Some("HDMI-A-1")
 **O que ainda não foi provado, e por isso não é o padrão:**
 
 - **Ponteiro.** A tradução `wl_pointer` → `egui::Event` existe em [`src/ui/host_layer_input.rs`](src/ui/host_layer_input.rs), mas ninguém clicou nos botões ainda. Sem isso, Settings/Gravar/Ata/modo são decoração.
-- **Escala fracionária.** O `wl_surface.set_buffer_scale` é inteiro; num output 1.67 o compositor reporta 2 e reduz por software — nítido o bastante, tamanho certo, mas não é o caminho bom. `wp_fractional_scale_v1` é a continuação.
+- ~~**Escala fracionária.**~~ ✅ Feito. `wp_fractional_scale_v1` + `wp_viewporter`, medido no painel 1.67: o compositor reporta `200/120 = 1.6666667` e o buffer virou **1500×583** — os pixels físicos exatos de 900×350 lógicos. Antes eram 1800×700 reduzidos por software para 1503×585. Agora desenha 1:1, sem reamostragem. Os dois protocolos vêm em par: com destino de viewport definido, o `set_buffer_scale` tem que ficar em 1, senão as duas correções se multiplicam.
 - **Render.** A superfície existe com geometria; se pinta ou é retângulo vazio não foi possível verificar por captura — o `grim` desta máquina está com o screencopy travado.
+
+**O que falta para tirar o "parcial"** — e não é código: rodar como padrão por tempo suficiente para confiar. Só então `host_toplevel.rs` some, com as ~206 linhas e a classe de bug que mora nelas, que é o aceite escrito aqui.
 
 A escolha é de **runtime** (`[overlay] surface = "auto" | "layer" | "toplevel"`), não de compilação, justamente para dar para comparar os dois hosts sem rebuild.
 

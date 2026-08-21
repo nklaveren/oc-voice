@@ -14,13 +14,10 @@
 //! Off by default. `EframeHost` is still what ships until this has proven
 //! pointer input and fractional scaling on real hardware.
 
-use std::num::NonZeroU32;
-
 use anyhow::{anyhow, Context as _, Result};
 use eframe::egui;
-use glutin::surface::GlSurface as _;
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState, FrameCallbackData},
+    compositor::{CompositorHandler, CompositorState},
     delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
@@ -41,12 +38,16 @@ use wayland_client::{
     Connection, QueueHandle,
 };
 
-use super::host::{Flow, Geometry, OverlayHost, OverlayUi};
+use super::host::{Geometry, OverlayHost, OverlayUi};
 
+#[path = "host_layer_frame.rs"]
+mod frame;
 #[path = "host_layer_gl.rs"]
 mod gl;
 #[path = "host_layer_input.rs"]
 mod input;
+#[path = "host_layer_scale.rs"]
+pub(super) mod scale;
 use gl::Gl;
 
 /// The namespace the compositor lists this surface under. `hyprctl layers`
@@ -81,6 +82,9 @@ impl OverlayHost for LayerShellHost {
             want_monitor: self.monitor,
             rebuild: false,
             layer: None,
+            fractional: None,
+            viewport: None,
+            fractional_surface: None,
             pointer: None,
             gl: None,
             egui: egui::Context::default(),
@@ -97,6 +101,10 @@ impl OverlayHost for LayerShellHost {
         // it lands on is a creation argument, not something to fix afterwards.
         // That is the difference from the toplevel host in one line.
         queue.roundtrip(&mut state)?;
+        state.fractional = scale::Fractional::bind(&globals, &qh);
+        if state.fractional.is_none() {
+            warn!("no fractional scaling here; falling back to integer buffer scale");
+        }
         state.build_surface(&qh);
 
         while !state.exit {
@@ -148,6 +156,12 @@ struct State {
     want_monitor: String,
     rebuild: bool,
     layer: Option<LayerSurface>,
+    /// The fractional-scale pair, when the compositor offers it. Without it
+    /// the integer path stays, which is soft but correct.
+    fractional: Option<scale::Fractional>,
+    viewport: Option<wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport>,
+    fractional_surface:
+        Option<wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::WpFractionalScaleV1>,
     pointer: Option<wl_pointer::WlPointer>,
     gl: Option<Gl>,
     egui: egui::Context,
@@ -162,82 +176,6 @@ struct State {
     events: Vec<egui::Event>,
     cursor: Option<egui::Pos2>,
     exit: bool,
-}
-
-impl State {
-    /// Physical pixels for the agreed logical size.
-    fn buffer_size(&self) -> (u32, u32) {
-        let (w, h) = self.logical;
-        (
-            (w as f32 * self.scale) as u32,
-            (h as f32 * self.scale) as u32,
-        )
-    }
-
-    /// Follow `self.size` with the EGL window, which glutin owns.
-    fn resize_gl(&mut self) {
-        let (w, h) = self.size;
-        if let Some(gl) = self.gl.as_ref() {
-            gl.surface.resize(
-                &gl.context,
-                NonZeroU32::new(w.max(1)).unwrap(),
-                NonZeroU32::new(h.max(1)).unwrap(),
-            );
-        }
-    }
-
-    fn draw(&mut self, qh: &QueueHandle<Self>) {
-        if self.ui.tick() == Flow::Exit {
-            self.exit = true;
-            return;
-        }
-        let Some(layer) = self.layer.as_ref() else {
-            return;
-        };
-        let Some(gl) = self.gl.as_mut() else { return };
-
-        let (w, h) = self.size;
-        let ppp = self.scale;
-        let raw = egui::RawInput {
-            // egui thinks in logical points; the buffer is physical. These are
-            // the two ends of the same conversion, so it uses the logical size
-            // the compositor agreed to rather than dividing back out of it.
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(self.logical.0 as f32, self.logical.1 as f32),
-            )),
-            events: std::mem::take(&mut self.events),
-            ..Default::default()
-        };
-        self.egui.set_pixels_per_point(ppp);
-
-        // The context is cloned so the closure can borrow the UI separately —
-        // both live in `self`.
-        let ctx = self.egui.clone();
-        let app = &mut self.ui;
-        // `run_ui` hands over the same top-level `Ui` eframe builds for its
-        // own `App::ui`, so both hosts satisfy the contract identically.
-        let out = ctx.run_ui(raw, |ui| app.paint(ui));
-
-        let dims: [u32; 2] = [w.max(1), h.max(1)];
-        let clipped = ctx.tessellate(out.shapes, out.pixels_per_point);
-        gl.painter.clear(dims, self.ui.clear_color());
-        gl.painter.paint_and_update_textures(
-            dims,
-            out.pixels_per_point,
-            &clipped,
-            &out.textures_delta,
-        );
-        // Ask for the next frame before presenting, so the callback is already
-        // registered when the compositor takes the buffer.
-        layer
-            .wl_surface()
-            .frame(qh, FrameCallbackData(layer.wl_surface().clone()));
-        if let Err(e) = gl.surface.swap_buffers(&gl.context) {
-            warn!(error = %e, "swap_buffers failed");
-            self.exit = true;
-        }
-    }
 }
 
 impl State {
@@ -280,6 +218,11 @@ impl State {
         // text then lands in the overlay instead of the window being written
         // to. Here it is one declared value.
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        if let Some(f) = self.fractional.as_ref() {
+            let (fs, vp) = f.attach(layer.wl_surface(), qh);
+            self.fractional_surface = Some(fs);
+            self.viewport = Some(vp);
+        }
         layer.commit();
         self.layer = Some(layer);
     }
@@ -308,6 +251,7 @@ impl LayerShellHandler for State {
             self.logical = (w, h);
         }
         self.size = self.buffer_size();
+        self.apply_viewport();
         if self.gl.is_none() {
             if let Err(e) = self.init_gl(conn, layer.wl_surface()) {
                 warn!(error = ?e, "could not create the GL context for the layer surface");
@@ -338,6 +282,11 @@ impl CompositorHandler for State {
         // Integer scale only; `wp_fractional_scale_v1` is the follow-up. On a
         // 1.67x output this renders at 2x and the compositor downscales:
         // slightly soft, correct in size. Wrong size would be worse.
+        if self.fractional.is_some() {
+            // The viewport already carries the mapping. Setting a buffer
+            // scale on top of it applies the correction twice.
+            return;
+        }
         self.scale = new as f32;
         surface.set_buffer_scale(new);
         self.size = self.buffer_size();

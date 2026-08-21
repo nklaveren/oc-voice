@@ -60,6 +60,10 @@ eframe = { version = "0.34", default-features = false, features = ["default_font
 # no new transitive dependency and no egui version bump — it only stops them
 # from being reached exclusively through winit.
 smithay-client-toolkit = { version = "0.21", optional = true }
+# Fractional scaling: `wp_fractional_scale_v1` says what the output really
+# wants (in 1/120 units) and `wp_viewporter` maps the buffer onto the logical
+# size. Already in the lock via SCTK; `staging` is where the first one lives.
+wayland-protocols = { version = "0.32", optional = true, features = ["client", "staging"] }
 wayland-client = { version = "0.31", optional = true }
 glutin = { version = "0.32", optional = true, default-features = false, features = ["egl", "wayland"] }
 egui_glow = { version = "0.34", optional = true }
@@ -76,6 +80,7 @@ cpu = []
 # the eframe host stays the one that ships.
 layer-shell = [
     "dep:smithay-client-toolkit",
+    "dep:wayland-protocols",
     "dep:wayland-client",
     "dep:glutin",
     "dep:egui_glow",
