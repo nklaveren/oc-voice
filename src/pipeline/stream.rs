@@ -88,16 +88,13 @@ impl Stream {
     /// this stream translates: whisper's `language` is the *source* hint, and
     /// forcing the UI's choice onto a meeting tells whisper to decode English
     /// as Portuguese, which returns noise.
+    ///
+    /// Pinning a settled language onto the decoder is the meeting's alone.
+    /// The stream that translates is the one listening to someone else talk,
+    /// at length, in one language — the case the pin was built to stabilize.
+    /// Your own microphone is the case it breaks: see `LanguageLock`.
     pub fn opts(&self, language: &str, single_segment: bool) -> TranscribeOpts {
-        TranscribeOpts {
-            language: if self.translate {
-                "auto".to_string()
-            } else {
-                language.to_string()
-            },
-            translate: self.translate,
-            single_segment,
-        }
+        opts_for(self.translate, language, single_segment)
     }
 
     /// Pull whatever capture has produced and cut it into VAD frames.
@@ -131,6 +128,21 @@ impl Stream {
 impl Drop for Stream {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// The decision `opts` makes, without a live capture device behind it —
+/// so the rule can be asserted in a test without opening a microphone.
+pub fn opts_for(translate: bool, language: &str, single_segment: bool) -> TranscribeOpts {
+    TranscribeOpts {
+        language: if translate {
+            "auto".to_string()
+        } else {
+            language.to_string()
+        },
+        translate,
+        pin_language: translate,
+        single_segment,
     }
 }
 

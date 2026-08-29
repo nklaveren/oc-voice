@@ -132,6 +132,24 @@ fn a_language_nobody_speaks_here_is_noise_not_disagreement() {
 }
 
 #[test]
+fn observing_survives_the_stream_that_never_pins() {
+    // The failure this halves: `pt` settles legitimately after three
+    // Portuguese turns, and on the microphone every English utterance
+    // afterwards was decoded as Portuguese, because the settled code became
+    // whisper's source hint. The fix takes the hint away from that stream —
+    // and the lock has to keep settling anyway, because the settled code is
+    // what picks the command vocabulary.
+    //
+    // Which stream may pin is the pipeline's decision, asserted in
+    // `only_the_meeting_pins_its_language_onto_the_decoder`.
+    let mut lock = LanguageLock::restricted_to(vec!["pt".into(), "en".into()]);
+    for _ in 0..3 {
+        lock.observe("pt");
+    }
+    assert_eq!(lock.locked(), Some("pt"), "observation still settles");
+}
+
+#[test]
 fn an_empty_list_still_accepts_anything() {
     // Someone who really does speak German should not have to discover a
     // config key to be understood.

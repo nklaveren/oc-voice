@@ -31,6 +31,9 @@ pub fn transcribe_with(
         &TranscribeOpts {
             language,
             translate,
+            // The benchmark path: one long recording of one passage, and
+            // the caller seeded the lock deliberately just above. Honour it.
+            pin_language: true,
             single_segment,
         },
         &mut throwaway,
@@ -48,6 +51,9 @@ pub fn transcribe_with(
 pub struct TranscribeOpts {
     /// The UI's source-language selection: `auto`, or an explicit code.
     pub language: String,
+    /// Whether a settled language may be forced onto whisper as the source
+    /// hint. Only the meeting sets it — see `LanguageLock`.
+    pub pin_language: bool,
     /// Whisper's translate task, which emits English whatever the source.
     pub translate: bool,
     /// Force one output segment. The live pipeline wants it — VAD already
@@ -65,6 +71,22 @@ pub struct TranscribeOpts {
 /// it guess again every few seconds.
 /// The pinned language lives here rather than in the shared settings, so two
 /// concurrent streams cannot pin over each other.
+///
+/// **The hint is the meeting's alone** (`TranscribeOpts::pin_language`).
+/// A meeting has one speaker in one language and drifts only under thin
+/// evidence, which is the case the pin was built for. Your own microphone
+/// is the opposite: the Tutor's whole premise is switching between English
+/// and Portuguese mid-turn, and dictation switches whenever you do. Forcing
+/// the hint there does not stabilize anything, it freezes the decoder in
+/// the language you happened to say three times — measured, from a real
+/// session: after nineteen turns alternating correctly, `pt` settled and
+/// the English passage "The tide does not arrive all at once. It comes in
+/// slow steps" came back as "A tira não chega no almoço, vem em um passo
+/// lentamente". Not a mishearing — whisper was told to decode English audio
+/// as Portuguese, and obeyed.
+///
+/// What the lock keeps doing on every stream is *observing*: the settled
+/// code is what picks the command vocabulary. That never touched decoding.
 #[derive(Default)]
 pub struct LanguageLock {
     candidate: Option<String>,
@@ -141,8 +163,13 @@ pub fn transcribe_locked(
 
     let lang = opts.language.clone();
     let translate = opts.translate;
-    // A locked language wins over detection: see LanguageLock.
-    let locked = lock.locked().map(str::to_string);
+    // A locked language wins over detection, but only where pinning is
+    // allowed at all: see LanguageLock.
+    let locked = if opts.pin_language {
+        lock.locked().map(str::to_string)
+    } else {
+        None
+    };
 
     // `language` is the SOURCE hint, not the output language — whisper's
     // translate task only ever emits English. In Translate mode the source is
@@ -187,6 +214,12 @@ pub fn transcribe_locked(
 
     // Feed the detection to the lock. Only agreement pins a language; a
     // single reading never does.
+    //
+    // The guard is "whisper actually detected", not "nothing is settled":
+    // with pinning off the hint stays empty forever, so the stream keeps
+    // observing every utterance instead of freezing on the first agreement.
+    // That is what keeps `detected_language` — and with it the command
+    // vocabulary — following you when you change language.
     if hint.is_none() {
         if let Some(code) = state
             .full_lang_id_from_state()

@@ -181,3 +181,18 @@ fn the_two_streams_do_not_share_a_language_lock() {
     assert_eq!(meeting.locked(), Some("en"));
     assert_eq!(mic.locked(), Some("pt"));
 }
+
+#[test]
+fn only_the_meeting_pins_its_language_onto_the_decoder() {
+    // The mic settling on a language must never become whisper's source
+    // hint: the Tutor switches languages mid-session by design, and a
+    // real session proved the cost — after `pt` settled, an English
+    // passage came back as Portuguese words.
+    let meeting = stream::opts_for(true, "auto", true);
+    let mic = stream::opts_for(false, "auto", true);
+    assert!(
+        meeting.pin_language,
+        "the meeting pins: one speaker, one language"
+    );
+    assert!(!mic.pin_language, "your own microphone never pins");
+}
