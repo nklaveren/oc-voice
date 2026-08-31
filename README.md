@@ -225,6 +225,9 @@ paragraphs, lower it.
 - **NVIDIA GPU** for the default CUDA build (tested: RTX 3070 Ti Laptop,
   driver via `hardware.graphics.enable`); a CPU build exists, see below
 
+macOS runs a subset — dictation, meeting subtitles, and opening applications,
+but no window commands. See [On macOS](#on-macos).
+
 ## Running
 
 ```bash
@@ -246,6 +249,41 @@ enters the shell automatically on `cd` (run `direnv allow` once):
 # NixOS configuration
 programs.direnv = { enable = true; nix-direnv.enable = true; };
 ```
+
+### On macOS
+
+There is no dev shell: `flake.nix` is Linux-only (alsa, pipewire, cuda,
+wayland, wtype, grim), so the toolchain comes from brew and rustup instead.
+
+```bash
+brew install rustup cmake onnxruntime just && rustup-init -y
+just run          # same recipe; it picks Metal instead of CUDA on its own
+```
+
+`just` reads `os()` and passes `--no-default-features --features metal`, so no
+command here differs from the Linux one. It also points `ORT_DYLIB_PATH` at
+brew's `libonnxruntime.dylib` unless the environment already names one — the
+VAD loads onnxruntime at run time, and without that path the overlay comes up,
+says "speak into the mic", and the pipeline thread has already panicked behind
+it.
+
+Dictation needs **Accessibility** permission for whatever runs the binary
+(your terminal), because injection is `osascript` driving System Events. The
+meeting mode needs BlackHole; `oc-voice devices` names the microphone actually
+in use.
+
+`just fetch-mt` is the other Linux-only recipe — it converts the translation
+model inside a `nix shell`, so translated subtitles need a machine that has
+one. Everything else in `just --list` runs.
+
+What does not work there: every window and monitor command. They all dispatch
+through `hyprctl`. Opening an application does work — `abre o safari` reads
+`/Applications` the way the Linux path reads `.desktop` files, and starts it
+with `open -a`. The overlay is an ordinary window rather than a layer surface,
+so its position belongs to the window manager: dragging it is a native window
+drag, and the saved margin does not survive a restart.
+
+Measured on an M4 Max: model load 208 ms, `cargo build --release` 1m38s.
 
 `just --list` shows every recipe. `just check` runs the full gate suite:
 clippy, fmt, tests, a per-file size ceiling, a hardcoded-vocabulary ban, and
@@ -343,9 +381,10 @@ usable; above 25% the problem is signal or model, not tuning.
   and screen capture — have a standard `xdg-desktop-portal` path that is not
   used here; listing windows has no portal at all, and that one is a real
   Wayland gap rather than a shortcut.
-- macOS. The core is partially ported (Metal build, keystroke injection via
-  osascript, meeting audio via BlackHole); window management is not. See M8
-  in `BACKLOG.md` for the map and what remains.
+- macOS window management. The core is ported and measured (Metal build,
+  keystroke injection via osascript, meeting audio via BlackHole, launching an
+  application via `open`); windows and monitors are not, and need an Aerospace
+  backend. See M8 in `BACKLOG.md` for the map and what remains.
 - Voice **commands** in Japanese/Chinese — transcription and dictation work,
   but the command matcher assumes space-separated alphabetic script
 - Only NVIDIA/CUDA has been tested for GPU inference

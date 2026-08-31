@@ -794,7 +794,14 @@ A escolha é de **runtime** (`[overlay] surface = "auto" | "layer" | "toplevel"`
 
 Desvio consciente do "Compositores além do Hyprland" em *Fora de escopo*: o que foi portado é o **núcleo** (captura, ASR, injeção de texto, áudio de sistema via dispositivo virtual), não o WM. O port inteiro segue uma regra: cada plataforma é um impl novo de uma trait — `Injector` em [`src/input/inject.rs`](src/input/inject.rs) é o exemplo trabalhado — e nunca um `cfg` espalhado pelos call sites. Quem portar para Windows escreve `WindowsInjector` e mais nada nos callers.
 
-### M8.1 — Build com Metal ✅ (aguardando commit)
+### M8.1 — Build com Metal ✅ (aguardando commit) — medido
+
+**Medido num M4 Max (macOS 26, rustc 1.98):** `cargo build --release
+--no-default-features --features metal` compila limpo em 1m38s, sem um único
+erro de plataforma. Whisper carrega pelo backend Metal em **208 ms** — contra
+2,8 s do CUDA no 3070 Ti. CoreAudio enumera as entradas e o microfone entrega
+sinal real (-65 dBFS em repouso, pico -38). O `just` agora escolhe as features
+por `os()`, então nenhum comando do mac difere do de Linux.
 
 `default = ["cuda"]` não existe no mac. [`Cargo.toml`](Cargo.toml) ganhou `metal = ["whisper-rs/metal"]` (a feature existe no whisper-rs 0.14) e o gate de GPU em [`src/pipeline/mod.rs`](src/pipeline/mod.rs) passou a `any(feature = "cuda", feature = "metal")`.
 
@@ -824,6 +831,10 @@ Sobrou zero `hyprctl` de comando de janela fora de `backend.rs`. Os 7 de [`host_
 
 **Falta o `AerospaceBackend`.** Escrevê-lo agora seria inventar o formato do `aerospace list-windows --json` sem uma máquina para conferir, e este projeto não fixa fixture imaginada. Precisa de uma captura real.
 
+**O que existe hoje:** `platform_backend()` em [`backend.rs`](src/wm/backend.rs) é o único lugar onde um window manager é escolhido — o mesmo papel que `platform_injector()` tem para o teclado. `MacOs` responde o único verbo que nunca precisou de window manager (`Launch`, via `open -a`) e devolve `false` em todos os outros, que é o que faz a queda para ditado continuar funcionando. `spelling()` entrou na trait porque o aviso do overlay era a grafia do `hyprctl` mesmo quando não era hyprctl que ia rodar — mentira na única linha que a pessoa vê.
+
+**Sob teste o backend é sempre o Hyprland**, por `cfg!(test)`. O snapshot e os testes de dispatch existem para fixar *aquela* grafia; uma suíte que responde diferente conforme a máquina não fixa nada. A grafia do mac é asserida direto em `MacOs::args`, do mesmo jeito que o `MacInjector` já é asserido a partir de um Linux.
+
 ### M8.4b — Aerospace, quando houver um Mac para medir
 
 O que falta para o modo Enter no mac disparar comandos de janela. `hyprctl` → [Aerospace](https://github.com/nikitabobko/AeroSpace) (CLI com `--json` estável; yabai exigiria desabilitar parcialmente o SIP). O resolvedor de alvos em [`src/wm/target.rs`](src/wm/target.rs) roda sobre structs próprias preenchidas do JSON do hyprctl: portar é escrever o parser do JSON do aerospace para as mesmas structs, mais um fixture em `tests/fixtures/`. Padrão do M8.2: `trait WmBackend`, `HyprctlBackend` intacto, `AerospaceBackend` novo.
@@ -838,15 +849,37 @@ O que falta para o modo Enter no mac disparar comandos de janela. `hyprctl` → 
 
 Hoje os comandos de WM no mac degradam graciosamente: o overlay só se posiciona se `hyprctl version` responder, e a injeção não depende de hyprctl.
 
+### M8.7 — Abrir aplicativo no mac ✅ (aguardando commit)
+
+`abre o {alvo}` resolvia contra arquivos `.desktop` dos diretórios XDG, que no mac não existem — a frase casava o template com 1.00 e despachava nada, que é exatamente o sintoma de comando quebrado. `installed()` passou a escolher o registro da plataforma: `.desktop` no XDG, bundles `.app` em `~/Applications`, `/Applications`, `/System/Applications` e as duas `Utilities`. Continua valendo a regra de `launch.rs`: a lista é a que a máquina já mantém, nunca uma tabela neste repo.
+
+`App.command` virou opaco de propósito — a linha `Exec` num lado, o caminho do bundle no outro. Quem produziu a lista é quem sabe rodar uma entrada dela, a mesma regra que os endereços de janela já seguem.
+
+`open` entrou na lista de comandos mutantes do `DryRunRunner`: o `probe` pontua "abre o X" pelo mesmo caminho do dispatch real e não pode sair abrindo aplicativo enquanto explica.
+
+Medido: `abre o safari` → `open -a /Applications/Safari.app`.
+
+### M8.8 — Layout do overlay no host toplevel ✅ parcial (aguardando commit)
+
+`set_bounds` e `take_layout_request` estavam mortos em qualquer build sem `layer-shell` — o `EframeHost` nunca implementou essa metade do contrato. Sem `layer-shell` os controles de tamanho fixavam contra constantes inventadas e o clamp nunca rodava, que é a falha que `set_bounds` foi escrito para impedir. O compilador dizia isso o tempo todo, chamando os métodos de mortos, e a leitura fácil era silenciar o lint.
+
+Tamanho resolvido: o host lê `monitor_size` e é a autoridade sobre o que cabe, a mesma regra do `fit_to_output` da layer surface.
+
+**Posição não.** Arrastar calculava a nova margem a partir do delta do ponteiro *dentro* da janela: mover a janela sob o ponteiro muda o delta seguinte, e os dois brigam — o overlay treme e fica atrás do cursor. `ViewportCommand::StartDrag` entrega o gesto inteiro ao window manager, o único que move a janela e lê o ponteiro no mesmo sistema de coordenadas. O custo é que a margem e o offset salvos não governam esse host, e nada lê de volta onde o gerenciador largou a janela; por isso posicionar no start a partir da margem salva também ficou de fora. Uma posição que este lado não consegue ler é uma que ele não deveria fingir possuir. Fechar isso pede o caminho de volta na costura (host → UI), que hoje não existe.
+
 ### M8.5 — OCR via screencapture
 
 `grim -g` → `screencapture -R<x>,<y>,<w>,<h>` em [`src/ocr.rs`](src/ocr.rs). Atenção às unidades: `grim -g` recebe pixels lógicos e escreve físicos (o código compensa scale); `screencapture -R` trabalha em pontos, com o mesmo ajuste em telas Retina. `tesseract` é o mesmo binário via brew. Requer permissão de **Gravação de Tela**. Não começado — adiado por decisão do usuário.
 
-### M8.6 — Dev shell darwin
+### M8.6 — Dev shell darwin ✅ parcial (aguardando commit)
 
-[`flake.nix`](flake.nix) lista alsa, pipewire, cuda, wayland, wtype, grim — todos Linux-only. Ganhar um bloco `pkgs.stdenv.isDarwin` com onnxruntime + tesseract, ou documentar brew + rustup como caminho oficial. Não começado.
+[`flake.nix`](flake.nix) lista alsa, pipewire, cuda, wayland, wtype, grim — todos Linux-only. Das duas opções, a segunda: **brew + rustup documentado como caminho oficial** no README, com o `justfile` escolhendo features e `ORT_DYLIB_PATH` por `os()`, de modo que nenhum comando do mac difere do de Linux.
+
+O bloco `pkgs.stdenv.isDarwin` continua em aberto e é a opção melhor — dois caminhos divergentes viram drift. Não foi escrito porque a máquina onde isto foi medido não tem Nix instalado, e um bloco de flake que ninguém rodou é a mesma fixture imaginada que o M8.4b recusa.
 
 **Aceite do M8 inteiro:** `just check` verde no mac (com `metal` no lugar de `cuda`), ditado Enter entregando texto via osascript, modo reunião legendando o BlackHole, e os itens não fechados listados aqui em vez de espalhados num doc à parte.
+
+**Estado do aceite:** `limits`, `refs`, `vocab`, `fmt` e `cargo test` (175) verdes no mac. `clippy -D warnings` acusa 5 erros que **não são do porte**: `float_literal_f32_fallback` em `overlay_draw.rs` e `chunks_exact_to_as_chunks` em `voiceprobe.rs` e `capture.rs`. São lints novos do rustc 1.98 e quebram o gate no Linux também, assim que o toolchain do flake avançar. Ficaram de fora deste porte de propósito: a correção sugerida para `chunks_exact` é `as_chunks`, que exige Rust ≥ 1.88 e sobe a MSRV do projeto dentro de um PR que era sobre macOS.
 
 ---
 
