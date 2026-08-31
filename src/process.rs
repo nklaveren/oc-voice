@@ -48,8 +48,11 @@ impl DryRunRunner {
     }
 
     fn is_mutating(program: &str, args: &[&str]) -> bool {
-        // Anything that types, and any hyprctl call that is not a query.
-        matches!(program, "wtype" | "xdotool" | "osascript")
+        // Anything that types, anything that starts an application, and any
+        // hyprctl call that is not a query. `open` is on the list because the
+        // probe must not launch what it is only scoring: "abre o X" resolves
+        // through the same path a real dispatch takes.
+        matches!(program, "wtype" | "xdotool" | "osascript" | "open")
             || (program == "hyprctl" && !args.contains(&"-j"))
             // A browser tab is state too. `curl .../json/activate/<id>` is a
             // plain GET, which reads like a query and is not one: it switches

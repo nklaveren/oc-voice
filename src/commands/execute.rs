@@ -67,8 +67,7 @@ fn try_settle_pending(
                 type_key(&**runner, "Return");
             }
             PendingAction::Dispatch { action, label } => {
-                use crate::wm::backend::WmBackend;
-                crate::wm::backend::Hyprctl::new(runner.clone()).dispatch(&action);
+                crate::wm::backend::platform_backend(runner.clone()).dispatch(&action);
                 emit(tx, TranscriptEvent::notice(format!("[{label}]")));
             }
         }

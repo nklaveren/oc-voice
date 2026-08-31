@@ -18,7 +18,7 @@ use crate::commands::PendingAction;
 use crate::config::{Config, LangVocab};
 use crate::process::CommandRunner;
 use crate::ui::stdout::emit;
-use crate::wm::backend::{Hyprctl, MonitorInfo, WmAction, WmBackend};
+use crate::wm::backend::{platform_backend, MonitorInfo, WmAction};
 use crate::wm::launch;
 use crate::wm::tabs;
 use crate::wm::target;
@@ -26,7 +26,7 @@ use crate::TranscriptEvent;
 use crossbeam_channel::Sender;
 
 fn live_monitors(runner: &Arc<dyn CommandRunner>) -> Vec<MonitorInfo> {
-    Hyprctl::new(runner.clone()).monitors()
+    platform_backend(runner.clone()).monitors()
 }
 
 /// Position words resolve against the actual x layout, not against hyprctl's
@@ -94,10 +94,11 @@ fn resolve_direction(spoken: &str, vocab: &LangVocab, threshold: f64) -> Option<
 }
 
 fn run_dispatch(runner: &Arc<dyn CommandRunner>, tx: &Sender<TranscriptEvent>, action: &WmAction) {
-    Hyprctl::new(runner.clone()).dispatch(action);
+    let backend = platform_backend(runner.clone());
+    backend.dispatch(action);
     emit(
         tx,
-        TranscriptEvent::notice(format!("[{}]", Hyprctl::args(action).join(" "))),
+        TranscriptEvent::notice(format!("[{}]", backend.spelling(action))),
     );
 }
 

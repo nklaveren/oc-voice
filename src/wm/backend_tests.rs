@@ -113,3 +113,40 @@ fn a_broken_query_yields_nothing_rather_than_panicking() {
     assert!(wm.monitors().is_empty());
     assert!(wm.focused_title().is_none());
 }
+
+#[test]
+fn macos_says_the_one_verb_it_can_and_refuses_the_rest() {
+    // The mac backend is asserted from whatever machine runs the suite, the
+    // way `MacInjector` already is: `args` only builds strings, so the
+    // encoding is checkable without a mac and without launching anything.
+    assert_eq!(
+        MacOs::args(&WmAction::Launch {
+            command: "/Applications/Xyz.app".to_string(),
+        }),
+        Some((
+            "open",
+            vec!["-a".to_string(), "/Applications/Xyz.app".to_string()]
+        )),
+    );
+
+    // Everything else is M8.4b. Reporting "not carried out" is what lets the
+    // fall-through above turn an unspoken-for command back into dictation;
+    // inventing an encoding here would make it look like it worked.
+    for action in [
+        WmAction::Fullscreen,
+        WmAction::KillActive,
+        WmAction::Workspace { number: 3 },
+        WmAction::MoveFocus {
+            direction: "l".to_string(),
+        },
+        WmAction::FocusWindow {
+            address: "0xb1".to_string(),
+        },
+    ] {
+        assert_eq!(
+            MacOs::args(&action),
+            None,
+            "{action:?} has no macOS spelling yet"
+        );
+    }
+}

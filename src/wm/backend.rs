@@ -62,7 +62,9 @@ pub enum WmAction {
         address: String,
     },
     /// Start something that is not running. The command comes from the
-    /// desktop's own `.desktop` files, never from this repo — see `launch.rs`.
+    /// machine's own registry of applications, never from this repo — see
+    /// `launch.rs`. Like an address, it is opaque: the backend that produced
+    /// the list is the backend that knows how to run one of its entries.
     Launch {
         command: String,
     },
@@ -91,6 +93,13 @@ pub trait WmBackend: Send + Sync {
 
     /// Carry out an action. Returns whether it was accepted.
     fn dispatch(&self, action: &WmAction) -> bool;
+
+    /// How this backend spells the action, for the overlay's notice.
+    ///
+    /// Part of the contract because the notice is the only thing that tells a
+    /// person what was carried out. Printing another platform's CLI there is
+    /// a lie in the one place they can check.
+    fn spelling(&self, action: &WmAction) -> String;
 }
 
 /// Hyprland, over its `hyprctl` CLI.
@@ -201,6 +210,10 @@ impl WmBackend for Hyprctl {
         Some(v.get("title")?.as_str()?.to_string())
     }
 
+    fn spelling(&self, action: &WmAction) -> String {
+        Self::args(action).join(" ")
+    }
+
     fn dispatch(&self, action: &WmAction) -> bool {
         let args = Self::args(action);
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -214,6 +227,97 @@ impl WmBackend for Hyprctl {
                 false
             }
         }
+    }
+}
+
+/// macOS, over the tools that ship with it.
+///
+/// Windows are not reachable from here yet — that needs Aerospace, and
+/// writing its JSON parser without a machine to capture a fixture from is
+/// exactly the invention this repo refuses (M8.4b). So this backend answers
+/// the one verb that never needed a window manager: starting something that
+/// is not running. Every other action reports that it was not carried out,
+/// which is what the confirmation and fall-through paths above already know
+/// how to handle — a command that dispatches nothing becomes dictation.
+pub struct MacOs {
+    runner: Arc<dyn CommandRunner>,
+}
+
+impl MacOs {
+    pub fn new(runner: Arc<dyn CommandRunner>) -> Self {
+        MacOs { runner }
+    }
+
+    /// The CLI form of an action, or nothing when this platform cannot say it
+    /// yet. Kept separate from `dispatch` for the reason `Hyprctl::args` is:
+    /// the encoding is the part a port gets wrong, and this way it can be
+    /// asserted from any machine.
+    pub fn args(action: &WmAction) -> Option<(&'static str, Vec<String>)> {
+        match action {
+            // `open` hands the launch to the session, the way `dispatch exec`
+            // does on Hyprland: a child of this process would inherit its
+            // stdio and die with it.
+            WmAction::Launch { command } => Some(("open", vec!["-a".to_string(), command.clone()])),
+            _ => None,
+        }
+    }
+}
+
+impl WmBackend for MacOs {
+    fn windows(&self) -> Vec<super::target::WindowInfo> {
+        Vec::new()
+    }
+
+    fn monitors(&self) -> Vec<MonitorInfo> {
+        Vec::new()
+    }
+
+    fn focused_title(&self) -> Option<String> {
+        None
+    }
+
+    fn spelling(&self, action: &WmAction) -> String {
+        match Self::args(action) {
+            Some((program, args)) => format!("{program} {}", args.join(" ")),
+            None => "(sem suporte nesta plataforma)".to_string(),
+        }
+    }
+
+    fn dispatch(&self, action: &WmAction) -> bool {
+        let Some((program, args)) = Self::args(action) else {
+            debug!(?action, "no window manager on this platform yet — M8.4b");
+            return false;
+        };
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        match self.runner.output(program, &refs) {
+            Ok(_) => {
+                info!(?action, "dispatched");
+                true
+            }
+            Err(e) => {
+                debug!(?action, error = %e, "the platform refused");
+                false
+            }
+        }
+    }
+}
+
+/// The backend this build talks to.
+///
+/// **The single place a window manager is chosen**, the way
+/// `platform_injector` is the single place a keyboard is. Everything above
+/// sees `dyn WmBackend` and no `cfg` reaches the grammar.
+pub fn platform_backend(runner: Arc<dyn CommandRunner>) -> Box<dyn WmBackend> {
+    // Under test this is always Hyprland. The dispatch tests and the snapshot
+    // exist to pin *that* encoding — "the way it always was" — and a suite
+    // that answers differently depending on the machine it runs on pins
+    // nothing. The platform choice is a production concern; the macOS
+    // encoding is asserted directly through `MacOs::args`, the same way
+    // `MacInjector` is asserted from a Linux machine.
+    if cfg!(target_os = "macos") && !cfg!(test) {
+        Box::new(MacOs::new(runner))
+    } else {
+        Box::new(Hyprctl::new(runner))
     }
 }
 
