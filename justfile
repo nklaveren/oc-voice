@@ -8,6 +8,21 @@ max_file_lines := "400"
 model_name := "ggml-large-v3-turbo-q8_0.bin"
 model_url := "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + model_name
 
+# The GPU backend is not the same one on both platforms, and the default
+# features are the Linux pair. Only the mac has to say anything, so on Linux
+# this expands to nothing and every command below stays what it was.
+cargo_features := if os() == "macos" { "--no-default-features --features metal" } else { "" }
+
+# The VAD loads onnxruntime at run time (ort's `load-dynamic`), so the path is
+# needed by whoever *runs*, not whoever builds. On Linux the nix dev shell
+# exports it; the mac has no dev shell, so brew's copy is the default and an
+# ORT_DYLIB_PATH already in the environment still wins. Getting this wrong is
+# quiet in the worst way: the overlay comes up, says "speak into the mic", and
+# the pipeline thread has already panicked behind it.
+ort_env := if os() == "macos" {
+    "ORT_DYLIB_PATH=" + env_var_or_default("ORT_DYLIB_PATH", "/opt/homebrew/lib/libonnxruntime.dylib")
+} else { "" }
+
 default:
     @just --list
 
@@ -40,63 +55,63 @@ fetch-model:
 
 # Release build
 build:
-    cargo build --release
+    cargo build --release {{ cargo_features }}
 
 # Read the reference passage aloud; reports word error rate per block
 asr-test: fetch-model
-    cargo run --release -- asr-test {{ models_dir }}/{{ model_name }}
+    {{ ort_env }} cargo run --release {{ cargo_features }} -- asr-test {{ models_dir }}/{{ model_name }}
 
 # Live meter of the signal whisper receives — speak and watch the level
 levels:
-    cargo run --release -- levels
+    {{ ort_env }} cargo run --release {{ cargo_features }} -- levels
 
 # List audio inputs and show which mic capture would use
 devices:
-    cargo run --release -- devices
+    cargo run --release {{ cargo_features }} -- devices
 
 # Type utterances, see the matcher's whole decision chain with scores
 probe:
-    cargo run --release -- probe
+    cargo run --release {{ cargo_features }} -- probe
 
 # Same as `probe`, against the English vocabulary
 probe-en:
-    cargo run --release -- probe en
+    cargo run --release {{ cargo_features }} -- probe en
 
 # Answers this before anything is built on top of the model: a second
 # onnxruntime consumer in one process is what broke the VAD in af4da28.
 # Does the speaker-embedding model load here, and what does it declare?
 voices:
-    cargo run --release -- voices
+    {{ ort_env }} cargo run --release {{ cargo_features }} -- voices
 
 # What OCR reads off a window, with the geometry to grab each line on its own
 ocr alvo="teams":
-    cargo run --release -- ocr {{ alvo }}
+    cargo run --release {{ cargo_features }} -- ocr {{ alvo }}
 
 # Sample one region until Ctrl+C, printing only when the text changes
 ocr-watch region:
-    cargo run --release -- ocr watch "{{ region }}"
+    cargo run --release {{ cargo_features }} -- ocr watch "{{ region }}"
 
 # In a running meeting the active speaker's name is the thing that changes
 # while the toolbar and the participant list sit still, so the region can
 # announce itself instead of someone eyeballing a 72-line dump.
 # Rank a window's lines by how much they actually move
 ocr-changes alvo="teams" segundos="60":
-    cargo run --release -- ocr changes {{ alvo }} {{ segundos }}
+    cargo run --release {{ cargo_features }} -- ocr changes {{ alvo }} {{ segundos }}
 
 # Fetch the model if needed, then run (CUDA)
 run: fetch-model
-    cargo run --release -- {{ models_dir }}/{{ model_name }}
+    {{ ort_env }} cargo run --release {{ cargo_features }} -- {{ models_dir }}/{{ model_name }}
 
 # Run on CPU — ~17x slower than realtime, see README
 run-cpu: fetch-model
-    cargo run --release --no-default-features --features cpu -- {{ models_dir }}/{{ model_name }}
+    {{ ort_env }} cargo run --release --no-default-features --features cpu -- {{ models_dir }}/{{ model_name }}
 
 # Full gate suite: limits, refs, vocab, check, clippy, fmt, test
 check: limits refs vocab
-    cargo check
-    cargo clippy --all-targets -- -D warnings
+    cargo check {{ cargo_features }}
+    cargo clippy --all-targets {{ cargo_features }} -- -D warnings
     cargo fmt --check
-    cargo test
+    {{ ort_env }} cargo test {{ cargo_features }}
 
 # Fail if any source file grew past the module size ceiling
 limits:
@@ -217,7 +232,7 @@ refs:
 # exists to make a silent change loud, and blindly re-recording turns it off.
 # Re-record the dispatch snapshot after an INTENTIONAL binding change
 snapshot:
-    UPDATE_SNAPSHOT=1 cargo test the_whole_vocabulary
+    UPDATE_SNAPSHOT=1 {{ ort_env }} cargo test {{ cargo_features }} the_whole_vocabulary
 
 # Apply rustfmt
 fmt:

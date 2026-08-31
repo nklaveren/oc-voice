@@ -40,6 +40,9 @@ pub fn list_devices() {
         Err(e) => println!("não consegui enumerar entradas: {e}"),
     }
     println!("\n* = o que `run_capture` usaria (default_input_device)");
+    #[cfg(target_os = "macos")]
+    println!("para trocar, mude a entrada padrão em Ajustes do Sistema > Som");
+    #[cfg(not(target_os = "macos"))]
     println!("para trocar, mude a fonte padrão no PipeWire: wpctl set-default <id>");
 }
 
@@ -49,8 +52,8 @@ pub fn list_devices() {
 /// Speech should sit around -25 to -15 dBFS RMS. A room at rest reads near
 /// -60. If speech never lifts the RMS well above the resting value, whisper
 /// is being fed a signal too quiet to transcribe, and no model change fixes
-/// that — raise the source volume (`wpctl set-volume <id> 1.5`) or pick a
-/// different microphone (`oc-voice devices`).
+/// that — raise the source volume (`wpctl set-volume <id> 1.5` on Linux, the
+/// system mixer on macOS) or pick a different microphone (`oc-voice devices`).
 pub fn run_level_meter(running: Arc<AtomicBool>) -> Result<()> {
     let rb = ringbuf::HeapRb::<f32>::new(16_000 * 4);
     let (producer, mut consumer) = rb.split();

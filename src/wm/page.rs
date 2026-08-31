@@ -218,9 +218,8 @@ pub fn resolve<'a>(spoken: &str, controls: &'a [Control], threshold: f64) -> Vec
 /// carries. A browser is one window to the compositor, so this is the only
 /// bridge back from "the window I am in" to "the page I am on".
 pub fn focused_tab(runner: &Arc<dyn CommandRunner>, port: u16) -> Option<super::tabs::Tab> {
-    use crate::wm::backend::WmBackend;
     let title =
-        matcher::normalize(&crate::wm::backend::Hyprctl::new(runner.clone()).focused_title()?);
+        matcher::normalize(&crate::wm::backend::platform_backend(runner.clone()).focused_title()?);
     super::tabs::live_tabs(runner, port)
         .into_iter()
         .filter(|t| !t.debugger.is_empty())

@@ -220,7 +220,13 @@ impl OverlayHost for EframeHost {
                 viewport,
                 ..Default::default()
             },
-            Box::new(|_cc| Ok(Box::new(Adapter { ui }))),
+            Box::new(|_cc| {
+                Ok(Box::new(Adapter {
+                    ui,
+                    bounds: None,
+                    dragging: false,
+                }))
+            }),
         )
         .map_err(|e| anyhow!("eframe error: {e}"))
     }
@@ -229,6 +235,80 @@ impl OverlayHost for EframeHost {
 /// Translates the portable contract into `eframe::App`.
 struct Adapter {
     ui: Box<dyn OverlayUi>,
+    /// The monitor size last handed to the UI, so bounds go down when they
+    /// change instead of every frame.
+    bounds: Option<egui::Vec2>,
+    /// Whether the window manager is already carrying the current gesture.
+    dragging: bool,
+}
+
+impl Adapter {
+    /// Tell the UI how big the screen is, as soon as that is known.
+    ///
+    /// Only a host ever sees the output. Without this the size sliders clamp
+    /// against invented constants — the failure `set_bounds` was written to
+    /// prevent. It was never a layer-shell detail; it was unimplemented here,
+    /// and the only thing that said so was the compiler calling the method
+    /// dead in a build without that feature.
+    fn sync_bounds(&mut self, ctx: &egui::Context) {
+        let Some(size) = ctx.input(|i| i.viewport().monitor_size) else {
+            return;
+        };
+        if self.bounds == Some(size) {
+            return;
+        }
+        self.bounds = Some(size);
+        self.ui.set_bounds(size.x, size.y);
+    }
+
+    /// Carry out what the Settings panel asked for — the toplevel counterpart
+    /// of `apply_layout` on the layer host.
+    ///
+    /// Size is carried out here. Position is not: this host does not own it.
+    fn apply_layout(&mut self, ctx: &egui::Context, request: LayoutRequest) {
+        if let Some((w, h)) = request.size {
+            // The host is the authority on what fits, the same rule the layer
+            // host applies: a UI asking for more than the screen gets the
+            // screen, not an off-screen surface.
+            let (w, h) = match self.bounds {
+                Some(b) => (w.min(b.x), h.min(b.y)),
+                None => (w, h),
+            };
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+        }
+        if request.bottom_margin.is_some() || request.x_offset.is_some() {
+            self.hand_drag_to_wm(ctx);
+        }
+        if request.monitor_step.is_some() {
+            // A toplevel does not choose its output; the window manager does.
+            // Saying so beats a button that looks like it worked.
+            tracing::info!("moving between monitors needs the layer surface host");
+        }
+    }
+
+    /// Let the window manager carry the drag.
+    ///
+    /// The overlay asks for a position by naming a margin, because a margin is
+    /// the only thing a layer surface understands. A toplevel cannot be moved
+    /// that way *while the drag is happening*: the delta the UI measured is
+    /// pointer motion **inside** the window, so moving the window under the
+    /// pointer changes the next delta and the two fight each other — the
+    /// overlay stutters and trails the cursor. `StartDrag` hands the whole
+    /// gesture to the window manager, the one party that moves the window and
+    /// reads the pointer in the same coordinate space.
+    ///
+    /// The cost is that the margin and offset the UI saves do not govern this
+    /// host — the window ends up where the manager put it, and nothing reads
+    /// that back. Placing at startup from a saved margin is deliberately not
+    /// done here for the same reason: a position this side cannot read is one
+    /// it should not pretend to own.
+    fn hand_drag_to_wm(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.pointer.any_down()) || self.dragging {
+            return;
+        }
+        self.dragging = true;
+        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
 }
 
 impl eframe::App for Adapter {
@@ -237,8 +317,15 @@ impl eframe::App for Adapter {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.sync_bounds(ctx);
+        if !ctx.input(|i| i.pointer.any_down()) {
+            self.dragging = false;
+        }
         if self.ui.tick() == Flow::Exit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if let Some(request) = self.ui.take_layout_request() {
+            self.apply_layout(ctx, request);
         }
         ctx.request_repaint_after(self.ui.repaint_after());
     }

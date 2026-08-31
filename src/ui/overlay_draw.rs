@@ -34,13 +34,13 @@ pub(super) fn style_controls(ui: &mut egui::Ui) {
         state.corner_radius = radius;
         state.bg_fill = egui::Color32::from_gray(fill);
         state.weak_bg_fill = egui::Color32::from_gray(fill);
-        state.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(stroke));
+        state.bg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_gray(stroke));
     }
     w.noninteractive.corner_radius = radius;
     // A disabled control still has to look like a control, or "Ata" before a
     // session exists reads as a rendering fault instead of as not-yet.
     w.noninteractive.bg_fill = egui::Color32::from_gray(24);
-    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(44));
+    w.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_gray(44));
     let spacing = ui.spacing_mut();
     spacing.button_padding = egui::vec2(10.0, 5.0);
     spacing.item_spacing.x = 8.0;

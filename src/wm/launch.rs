@@ -28,7 +28,10 @@ use crate::commands::matcher;
 #[derive(Debug, Clone, PartialEq)]
 pub struct App {
     pub name: String,
-    /// The `Exec` line with its field codes removed.
+    /// Whatever the platform's own launcher needs to start it: the `Exec`
+    /// line with its field codes removed on an XDG desktop, the bundle path
+    /// on macOS. Opaque between here and the backend that runs it, the same
+    /// way a window address is.
     pub command: String,
 }
 
@@ -60,7 +63,67 @@ fn data_dirs() -> Vec<PathBuf> {
 }
 
 /// Everything the desktop offers, deduplicated by name.
+///
+/// Which registry that is, is the only part that differs: `.desktop` files on
+/// an XDG desktop, `.app` bundles on macOS. Both are the list the machine
+/// already keeps — a table in this repo would be a second, worse copy.
 pub fn installed() -> Vec<App> {
+    if cfg!(target_os = "macos") {
+        mac_installed()
+    } else {
+        xdg_installed()
+    }
+}
+
+/// Where macOS keeps applications, the user's own first — the same rule XDG
+/// states, for the same reason.
+fn app_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        dirs.push(PathBuf::from(home).join("Applications"));
+    }
+    // Utilities is listed on its own: macOS nests one level there and nowhere
+    // else, and a recursive walk of /System would cost far more than naming it.
+    for d in [
+        "/Applications",
+        "/Applications/Utilities",
+        "/System/Applications",
+        "/System/Applications/Utilities",
+    ] {
+        dirs.push(PathBuf::from(d));
+    }
+    dirs
+}
+
+/// Bundles, which carry their spoken name in the directory name itself.
+fn mac_installed() -> Vec<App> {
+    let mut seen = HashSet::new();
+    let mut apps = Vec::new();
+    for dir in app_dirs() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("app") {
+                continue;
+            }
+            let Some(name) = path.file_stem().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if seen.insert(name.to_lowercase()) {
+                apps.push(App {
+                    name: name.to_string(),
+                    command: path.to_string_lossy().into_owned(),
+                });
+            }
+        }
+    }
+    debug!(count = apps.len(), "installed applications");
+    apps
+}
+
+fn xdg_installed() -> Vec<App> {
     let mut seen = HashSet::new();
     let mut apps = Vec::new();
     for dir in data_dirs() {

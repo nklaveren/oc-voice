@@ -21,7 +21,9 @@
 - `voice_activity_detector` (silero v5 via ONNX) for segmentation
 - `whisper-rs` / `whisper.cpp` for local ASR, CUDA by default
 - `eframe` / `egui` for the floating overlay
-- `wtype` for text injection, `hyprctl` for window and WM control
+- `wtype` for text injection, `hyprctl` for window and WM control; each is
+  chosen in exactly one place (`platform_injector`, `platform_backend`) and a
+  new platform is a new impl, never a `cfg` at a call site
 - Nix flakes for the dev environment, `just` for common commands
 
 ## Repo layout
@@ -43,7 +45,9 @@
 
 1. Enter the environment with `nix develop`. `just` and `cargo` do NOT exist
    outside it — from outside, prefix everything with `nix develop --command`.
-   The committed `.envrc` makes direnv do this automatically.
+   The committed `.envrc` makes direnv do this automatically. On macOS there is
+   no dev shell: the toolchain is brew + rustup, and `just` picks the features
+   by `os()` so the recipes are the same ones. See "On macOS" in the README.
 2. `just fetch-model` downloads the Whisper model (~874 MB) on first use.
 3. `just run` for the default CUDA path, `just run-cpu` when no GPU is available.
 4. `just check` before wrapping up — it runs the size ceiling (`limits`), the docs
