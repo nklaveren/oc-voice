@@ -2,6 +2,21 @@
 
 use super::*;
 
+/// Did anything reach text injection?
+///
+/// Asked of the calls rather than of a command name, because the command is
+/// the one part that is not portable: `LinuxInjector` probes for its tool
+/// with `which` before typing, and `MacInjector` has nothing to probe for and
+/// goes straight to `osascript`. These tests are about whether the
+/// confirmation policy let an injection through, and that question has the
+/// same answer on both platforms — spelling one of them here made the whole
+/// suite fail on the other (M8.2).
+fn injected(fake: &crate::process::FakeRunner) -> bool {
+    fake.calls()
+        .iter()
+        .any(|(p, _)| matches!(p.as_str(), "which" | "osascript"))
+}
+
 #[test]
 fn a_dispatched_command_is_never_also_typed() {
     // This was `command_mode_never_types`, and the mode it guarded is gone —
@@ -120,10 +135,7 @@ fn unmatched_target_waits_for_confirmation() {
         &runner,
     );
     assert!(pending.is_some(), "unmatched target must ask first");
-    assert!(
-        !fake.calls().iter().any(|(p, _)| p == "which"),
-        "nothing typed before confirmation"
-    );
+    assert!(!injected(&fake), "nothing typed before confirmation");
 
     // "confirma" executes the held action; "não" would have discarded it.
     let settings = std::sync::Mutex::new(crate::AppSettings {
@@ -146,10 +158,7 @@ fn unmatched_target_waits_for_confirmation() {
         &runner,
     );
     assert!(pending.is_none(), "confirmation settles the pending action");
-    assert!(
-        fake.calls().iter().any(|(p, _)| p == "which"),
-        "confirmed action reaches text injection"
-    );
+    assert!(injected(&fake), "confirmed action reaches text injection");
 }
 
 #[test]
@@ -226,10 +235,7 @@ fn deny_discards_the_pending_action() {
         &runner,
     );
     assert!(pending.is_none());
-    assert!(
-        !fake.calls().iter().any(|(p, _)| p == "which"),
-        "denied action must never type"
-    );
+    assert!(!injected(&fake), "denied action must never type");
 }
 
 #[test]
